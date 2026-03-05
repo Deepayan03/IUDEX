@@ -1,0 +1,115 @@
+/* 
+  editorStyles.css
+  Place in: components/editor/editorStyles.css
+  Import in EditorLayout.tsx via: import "./editorStyles.css"
+  (or paste the content into your globals.css)
+*/
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Syne:wght@400;600;700&display=swap');
+
+/* ── Keyframe Animations ──────────────────────────────────────────────────── */
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes expand {
+  from { opacity: 0; transform: scaleY(0.92); transform-origin: top; }
+  to   { opacity: 1; transform: scaleY(1); }
+}
+
+@keyframes tabSlide {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(61,90,254,0); }
+  50%       { box-shadow: 0 0 8px 2px rgba(61,90,254,0.25); }
+}
+
+/* ── Animation Classes ────────────────────────────────────────────────────── */
+.animate-slideDown { animation: slideDown 0.18s ease both; }
+.animate-fadeIn    { animation: fadeIn 0.15s ease both; }
+.animate-expand    { animation: expand 0.2s ease both; }
+.animate-tabSlide  { animation: tabSlide 0.2s ease both; }
+
+/* ── Scrollbar Utilities ──────────────────────────────────────────────────── */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+.thin-scrollbar::-webkit-scrollbar       { width: 4px; }
+.thin-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.thin-scrollbar::-webkit-scrollbar-thumb { background: #2a3352; border-radius: 2px; }
+
+/* ── Resize Handle ────────────────────────────────────────────────────────── */
+.resize-handle { cursor: col-resize; }
+
+.resize-handle:hover::after,
+.resize-handle.dragging::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(61,90,254,0.35);
+  border-radius: 2px;
+}
+
+/* ── Font Utilities ───────────────────────────────────────────────────────── */
+.editor-font { font-family: 'JetBrains Mono', monospace; }
+.ui-font     { font-family: 'Syne', sans-serif; }
+
+/* ── Tab States ───────────────────────────────────────────────────────────── */
+.tab-active {
+  background: #0d1117;
+  border-top: 1.5px solid #3d5afe;
+  color: #e2e8f0;
+}
+
+.tab-inactive {
+  background: transparent;
+  color: #4a5568;
+}
+
+.tab-inactive:hover {
+  background: #0f1623;
+  color: #8899b0;
+}
+
+/* ── Status Bar Items ─────────────────────────────────────────────────────── */
+.status-item {
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.status-item:hover {
+  background: rgba(255,255,255,0.08);
+  color: white;
+}
+
+/* ── Panel Backgrounds ────────────────────────────────────────────────────── */
+.sidebar-bg {
+  background: linear-gradient(180deg, #080d18 0%, #090e1a 100%);
+}
+
+.activitybar-bg {
+  background: #060b14;
+}
+
+/* ── Glow Button ──────────────────────────────────────────────────────────── */
+.glow-btn {
+  transition: all 0.2s ease;
+}
+
+.glow-btn:hover {
+  box-shadow: 0 0 12px rgba(61,90,254,0.4);
+  transform: translateY(-1px);
+}
+
+.glow-btn:active {
+  transform: translateY(0);
+}
