@@ -1,34 +1,87 @@
-// ── Menu item shape ───────────────────────────────────────────────────────────
+// ── Menu item shape ────────────────────────────────────────────────────────
 export type MenuItem =
-  | { divider: true; label?: never; shortcut?: never; disabled?: never; action?: never }
-  | { divider?: false; label: string; shortcut?: string; disabled?: boolean; action?: string }
+  | { divider: true }
+  | {
+      label: string
+      shortcut?: string
+      disabled?: boolean
+      action?: TitleBarAction
+    }
 
-// ── Every action the titlebar can emit ───────────────────────────────────────
+// ── Every action the titlebar can emit ─────────────────────────────────────
 export type TitleBarAction =
-  // File
-  | "new-file" | "new-window" | "save" | "save-as" | "save-all"
-  | "close-editor" | "preferences"
-  // Edit
-  | "undo" | "redo" | "find" | "replace" | "format-document" | "toggle-comment"
-  // View
-  | "command-palette" | "toggle-explorer" | "toggle-search-panel"
-  | "toggle-terminal" | "zoom-in" | "zoom-out" | "zoom-reset"
-  | "toggle-panel-layout" | "customize-layout"
-  // Go
-  | "go-back" | "go-forward" | "go-to-file" | "go-to-line"
-  // Run
-  | "start-debug" | "run-without-debug" | "toggle-breakpoint"
-  // Terminal
-  | "new-terminal" | "split-terminal" | "run-build-task"
-  // Icons
-  | "toggle-sidebar" | "notifications"
 
-// ── Open-menu state ───────────────────────────────────────────────────────────
+  // File
+  | "new-file"
+  | "new-folder"
+  | "new-window"
+  | "save"
+  | "save-as"
+  | "save-all"
+  | "close-editor"
+  | "close-all-editors"
+  | "preferences"
+  | "open-recent"
+
+  // Edit
+  | "undo"
+  | "redo"
+  | "cut"
+  | "copy"
+  | "paste"
+  | "select-all"
+  | "find"
+  | "replace"
+  | "format-document"
+  | "toggle-comment"
+
+  // View
+  | "command-palette"
+  | "toggle-explorer"
+  | "toggle-search-panel"
+  | "toggle-terminal"
+  | "toggle-panel-layout"
+  | "customize-layout"
+  | "toggle-sidebar"
+  | "zoom-in"
+  | "zoom-out"
+  | "zoom-reset"
+
+  // Go
+  | "go-back"
+  | "go-forward"
+  | "go-to-file"
+  | "go-to-line"
+  | "go-to-symbol"
+  | "go-to-definition"
+
+  // Run
+  | "start-debug"
+  | "run-without-debug"
+  | "stop-debug"
+  | "restart-debug"
+  | "toggle-breakpoint"
+
+  // Terminal
+  | "new-terminal"
+  | "split-terminal"
+  | "kill-terminal"
+  | "run-build-task"
+  | "run-active-file"
+
+  // Misc
+  | "notifications"
+
+
+// ── Open-menu state ────────────────────────────────────────────────────────
 export type OpenMenu = { key: string; top: number; left: number } | null
 
-// ── TitleBar props ────────────────────────────────────────────────────────────
+
+// ── TitleBar props ─────────────────────────────────────────────────────────
 export interface TitleBarProps {
   activeFileName?: string | null
   sidebarVisible?: boolean
+  terminalVisible?: boolean
+  isDebugging?: boolean
   onAction: (action: TitleBarAction) => void
 }

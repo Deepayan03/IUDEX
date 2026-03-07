@@ -31,7 +31,7 @@ export default function EditorPane({
 
       {/* ── Tabs ───────────────────────────────────────────────────────────── */}
       <div
-        className="h-[36px] min-h-[36px] flex items-end flex-shrink-0 no-scrollbar overflow-x-auto"
+        className="h-9 min-h-9 flex items-end shrink-0 no-scrollbar overflow-x-auto"
         style={{ background: "#04080f", borderBottom: "1px solid #0d1525" }}
       >
         {openTabs.length === 0 ? (
@@ -47,7 +47,7 @@ export default function EditorPane({
               <div
                 key={tab.id}
                 onClick={() => onTabClick(tab)}
-                className={`h-full flex items-center gap-2 px-4 text-[12px] cursor-pointer border-r border-[#0d1525] flex-shrink-0 animate-tabSlide transition-all duration-150 ${isActive ? "tab-active" : "tab-inactive"}`}
+                className={`h-full flex items-center gap-2 px-4 text-[12px] cursor-pointer border-r border-[#0d1525] shrink-0 animate-tabSlide transition-all duration-150 ${isActive ? "tab-active" : "tab-inactive"}`}
                 style={{ minWidth: 120, maxWidth: 180 }}
               >
                 <span style={{ color, fontSize: 10, fontWeight: "bold" }}>{icon}</span>
@@ -57,7 +57,7 @@ export default function EditorPane({
                 <button
                   onClick={e => isDirty ? e.stopPropagation() : onTabClose(tab.id, e)}
                   title={isDirty ? "Unsaved changes" : "Close"}
-                  className="w-4 h-4 flex items-center justify-center rounded transition-all duration-150 flex-shrink-0"
+                  className="w-4 h-4 flex items-center justify-center rounded transition-all duration-150 shrink-0"
                   style={{
                     color:      isActive ? "#4a6080" : "transparent",
                     background: "transparent",
@@ -91,7 +91,7 @@ export default function EditorPane({
       {/* ── Breadcrumb ─────────────────────────────────────────────────────── */}
       {activeFile && (
         <div
-          className="h-[24px] min-h-[24px] flex items-center px-4 flex-shrink-0 editor-font"
+          className="h-6 min-h-6 flex items-center px-4 shrink-0 editor-font"
           style={{ background: "#060c18", borderBottom: "1px solid #0a1424", fontSize: 11, color: "#2a3a5a" }}
         >
           {breadcrumb.map((seg, i) => (
