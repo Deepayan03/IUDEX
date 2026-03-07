@@ -2,6 +2,7 @@
 export type MenuItem =
   | { divider: true }
   | {
+      divider?: false
       label: string
       shortcut?: string
       disabled?: boolean
