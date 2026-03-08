@@ -8,6 +8,7 @@ export type FileNode = {
   content?: string
   children?: FileNode[]
   isOpen?: boolean
+  githubPath?: string
 }
 
 export type InlineCreate = {

@@ -18,6 +18,7 @@ export function buildMenus(s: MenuState): Record<string, MenuItem[]> {
       { label: "New Window",             shortcut: "⇧⌘N",   action: "new-window" },
       { divider: true },
       { label: "Open Recent",                               action: "open-recent" },
+      { label: "Import from GitHub...",                      action: "import-github" },
       { divider: true },
       { label: "Save",                   shortcut: "⌘S",    action: "save",             disabled: !s.hasActiveFile },
       { label: "Save As...",             shortcut: "⇧⌘S",   action: "save-as",          disabled: !s.hasActiveFile },
@@ -94,6 +95,7 @@ export const MENU_KEYS = ["File", "Edit", "View", "Go", "Run", "Terminal"]
 // ── Toast messages ────────────────────────────────────────────────────────────
 export const ACTION_TOASTS: Partial<Record<string, string>> = {
   "save":              "✓  File saved",
+  "import-github":     "Importing from GitHub...",
   "save-all":          "✓  All files saved",
   "save-as":           "↓  File downloaded",
   "new-file":          "New file created",
@@ -125,6 +127,7 @@ export const PALETTE_COMMANDS: { label: string; shortcut?: string; action: strin
   { label: "Close Editor",          shortcut: "⌘W",   action: "close-editor",        category: "File" },
   { label: "Close All Editors",     shortcut: "⌘K W", action: "close-all-editors",   category: "File" },
   { label: "Preferences",           shortcut: "⌘,",   action: "preferences",         category: "File" },
+  { label: "Import from GitHub",                        action: "import-github",       category: "File" },
   { label: "Undo",                  shortcut: "⌘Z",   action: "undo",                category: "Edit" },
   { label: "Redo",                  shortcut: "⇧⌘Z",  action: "redo",                category: "Edit" },
   { label: "Find in File",          shortcut: "⌘F",   action: "find",                category: "Edit" },

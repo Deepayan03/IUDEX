@@ -19,6 +19,7 @@ import Sidebar                           from "./Sidebar"
 import EditorPane                        from "./Editorpane"
 import StatusBar                         from "./Statusbar"
 import PreferencesModal                  from "./PreferencesModal"
+import ImportGitHubModal                 from "./ImportGitHubModal"
 import type { EditorInstance }           from "./CodeEditor"
 
 export default function EditorLayout() {
@@ -47,6 +48,11 @@ export default function EditorLayout() {
   const [prefs,     setPrefs]       = useState<EditorPrefs>(() =>
     typeof window !== "undefined" ? loadPrefs() : DEFAULT_PREFS
   )
+
+  // ── GitHub import ───────────────────────────────────────────────────────────
+  const [githubImportOpen, setGithubImportOpen] = useState(false)
+  const [githubRepo, setGithubRepo] = useState<{ owner: string; repo: string; branch: string } | null>(null)
+  const [loadingFileId, setLoadingFileId] = useState<string | null>(null)
 
   // ── Cursor position (from Monaco) ─────────────────────────────────────────
   const [cursorLine, setCursorLine] = useState(1)
@@ -87,7 +93,37 @@ export default function EditorLayout() {
     setActiveFile(node)
     setOpenTabs(prev => prev.find(t => t.id === node.id) ? prev : [...prev, node])
     tabHistory.push(node.id)
-  }, [tabHistory])
+
+    // Lazy-load content for GitHub-imported files
+    if (node.githubPath && node.content === undefined && githubRepo) {
+      setLoadingFileId(node.id)
+      const params = new URLSearchParams({
+        owner: githubRepo.owner,
+        repo: githubRepo.repo,
+        branch: githubRepo.branch,
+        path: node.githubPath,
+      })
+      fetch(`/api/github/content?${params}`)
+        .then(res => {
+          if (!res.ok) throw new Error(`Failed to load file (${res.status})`)
+          return res.json()
+        })
+        .then(data => {
+          const content: string = data.content
+          setTree(t => updateContent(t, node.id, content))
+          setActiveFile(prev => prev?.id === node.id ? { ...prev, content } : prev)
+          setOpenTabs(prev => prev.map(t => t.id === node.id ? { ...t, content } : t))
+        })
+        .catch(err => {
+          const errorMsg = `// Error loading file: ${(err as Error).message}\n// Path: ${node.githubPath}`
+          setTree(t => updateContent(t, node.id, errorMsg))
+          setActiveFile(prev => prev?.id === node.id ? { ...prev, content: errorMsg } : prev)
+        })
+        .finally(() => {
+          setLoadingFileId(prev => prev === node.id ? null : prev)
+        })
+    }
+  }, [tabHistory, githubRepo])
 
   // ── Close tab ─────────────────────────────────────────────────────────────
   const closeTab = useCallback((id: string, e?: React.MouseEvent) => {
@@ -152,6 +188,20 @@ export default function EditorLayout() {
     setUnsavedIds(new Set())
   }, [])
 
+  // ── GitHub import handler ────────────────────────────────────────────────
+  const handleGitHubImport = useCallback((
+    importedTree: FileNode[],
+    meta: { owner: string; repo: string; branch: string }
+  ) => {
+    setTree(importedTree)
+    setGithubRepo(meta)
+    setActiveFile(null)
+    setOpenTabs([])
+    setUnsavedIds(new Set())
+    setGithubImportOpen(false)
+    setLoadingFileId(null)
+  }, [])
+
   // ── Debug ─────────────────────────────────────────────────────────────────
   const startDebug = useCallback(() => {
     setIsDebugging(true)
@@ -175,6 +225,7 @@ export default function EditorLayout() {
       case "close-editor":    if (activeFile) closeTab(activeFile.id); break
       case "close-all-editors": closeAllEditors(); break
       case "preferences":     setPrefsOpen(true); break
+      case "import-github":   setGithubImportOpen(true); break
 
       // ── Edit — delegated to Monaco ───────────────────────────────────────
       case "undo":            editorActions.undo();          break
@@ -350,6 +401,8 @@ export default function EditorLayout() {
           prefs={prefs}
           terminalVisible={terminalVisible}
           terminalHeight={terminalHeight}
+          loadingFileId={loadingFileId}
+          onAction={handleAction}
           onTabClick={selectFile}
           onTabClose={(id, e) => closeTab(id, e)}
           onEditorMount={handleEditorMount}
@@ -375,6 +428,14 @@ export default function EditorLayout() {
           prefs={prefs}
           onChange={setPrefs}
           onClose={() => setPrefsOpen(false)}
+        />
+      )}
+
+      {/* GitHub import modal */}
+      {githubImportOpen && (
+        <ImportGitHubModal
+          onImport={handleGitHubImport}
+          onClose={() => setGithubImportOpen(false)}
         />
       )}
     </div>

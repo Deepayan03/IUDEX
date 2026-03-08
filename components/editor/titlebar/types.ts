@@ -23,6 +23,7 @@ export type TitleBarAction =
   | "close-all-editors"
   | "preferences"
   | "open-recent"
+  | "import-github"
 
   // Edit
   | "undo"
