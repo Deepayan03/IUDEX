@@ -3,11 +3,9 @@
 import { useState, useRef, useEffect } from "react"
 import { motion, AnimatePresence, type Variants } from "framer-motion"
 import { Users, X, ChevronRight, FileCode2, Mail, Circle } from "lucide-react"
-import type { CollaboratorInfo } from "@/store/collaboration"
+import { useCollaborationStore, type CollaboratorInfo } from "@/store/collaboration"
 
 interface CollaboratorsPanelProps {
-  collaborators: CollaboratorInfo[]
-  connectionStatus: "disconnected" | "connecting" | "connected" | undefined
   roomCreatorId?: string | null
   isRoomCreator?: boolean
 }
@@ -118,11 +116,11 @@ const pulseRing: Variants = {
 // ── Component ────────────────────────────────────────────────────────────
 
 export default function CollaboratorsPanel({
-  collaborators,
-  connectionStatus,
   roomCreatorId,
   isRoomCreator,
 }: CollaboratorsPanelProps) {
+  const collaborators = useCollaborationStore(s => s.collaborators)
+  const connectionStatus = useCollaborationStore(s => s.connectionStatus)
   const [isOpen, setIsOpen] = useState(false)
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)

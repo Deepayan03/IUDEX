@@ -2,12 +2,7 @@
 
 import { useEffect, useRef } from "react"
 import type { EditorPrefs } from "./types"
-
-interface PreferencesModalProps {
-  prefs:    EditorPrefs
-  onChange: (next: EditorPrefs) => void
-  onClose:  () => void
-}
+import { usePreferencesStore } from "@/store/preferences"
 
 // Generic row components for the form
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -89,22 +84,26 @@ const FONT_FAMILIES = [
 
 // const FONT_LABELS: Record<string, string> = Object.fromEntries(FONT_FAMILIES.map(f => [f.value, f.label]))
 
-export default function PreferencesModal({ prefs, onChange, onClose }: PreferencesModalProps) {
+export default function PreferencesModal() {
+  const prefs = usePreferencesStore(s => s.prefs)
+  const setPrefs = usePreferencesStore(s => s.setPrefs)
+  const closePrefs = usePreferencesStore(s => s.closePrefs)
+
   const set = <K extends keyof EditorPrefs>(key: K, val: EditorPrefs[K]) =>
-    onChange({ ...prefs, [key]: val })
+    setPrefs({ ...prefs, [key]: val })
 
   const overlayRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") closePrefs() }
     document.addEventListener("keydown", h)
     return () => document.removeEventListener("keydown", h)
-  }, [onClose])
+  }, [closePrefs])
 
   return (
     <div
       ref={overlayRef}
-      onMouseDown={e => { if (e.target === overlayRef.current) onClose() }}
+      onMouseDown={e => { if (e.target === overlayRef.current) closePrefs() }}
       style={{
         position: "fixed", inset: 0, zIndex: 99990,
         background: "rgba(0,0,0,0.6)",
@@ -131,8 +130,7 @@ export default function PreferencesModal({ prefs, onChange, onClose }: Preferenc
             </svg>
             <span style={{ fontSize: 13, color: "#e2e8f0", fontWeight: 600 }}>Preferences</span>
           </div>
-          <button onClick={onClose} style={{
-            background: "transparent", border: "none", color: "#4a6080",
+          <button onClick={closePrefs} style={{
             cursor: "pointer", fontSize: 16, padding: "0 4px",
             display: "flex", alignItems: "center",
           }}>×</button>
@@ -212,7 +210,7 @@ export default function PreferencesModal({ prefs, onChange, onClose }: Preferenc
           display: "flex", justifyContent: "flex-end", gap: 8,
           padding: "10px 20px", borderTop: "1px solid #161f30", background: "#060c18",
         }}>
-          <button onClick={onClose} style={{
+          <button onClick={closePrefs} style={{
             padding: "5px 16px", fontSize: 12, borderRadius: 4, cursor: "pointer",
             background: "#3d5afe", border: "none", color: "white",
           }}>

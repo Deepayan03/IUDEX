@@ -2,37 +2,31 @@
 
 import { useState, useCallback } from "react"
 import { getLanguage } from "./utils"
-import type { FileNode } from "./types"
+import { useEditorTabsStore }    from "@/store/editorTabs"
+import { useLayoutStore }        from "@/store/layout"
+import { useCollaborationStore } from "@/store/collaboration"
 
 interface StatusBarProps {
-  activeFile:     FileNode | null
-  cursorLine?:    number
-  cursorCol?:     number
   zoom?:          number
-  unsavedCount?:  number
-  isDebugging?:   boolean
-  terminalVisible?: boolean
-  connectionStatus?: "disconnected" | "connecting" | "connected"
-  collaboratorCount?: number
   isRoomCreator?: boolean
-  roomId?: string
+  roomId?:        string
   onAction?:      (a: "toggle-terminal" | "toggle-sidebar" | "zoom-reset") => void
 }
 
 export default function StatusBar({
-  activeFile,
-  cursorLine    = 1,
-  cursorCol     = 1,
   zoom          = 1,
-  unsavedCount  = 0,
-  isDebugging   = false,
-  terminalVisible = false,
-  connectionStatus,
-  collaboratorCount,
   isRoomCreator,
   roomId,
   onAction,
 }: StatusBarProps) {
+  const activeFile      = useEditorTabsStore(s => s.activeFile)
+  const cursorLine      = useEditorTabsStore(s => s.cursorLine)
+  const cursorCol       = useEditorTabsStore(s => s.cursorCol)
+  const unsavedCount    = useEditorTabsStore(s => s.unsavedIds).size
+  const isDebugging     = useLayoutStore(s => s.isDebugging)
+  const terminalVisible = useLayoutStore(s => s.terminalVisible)
+  const connectionStatus  = useCollaborationStore(s => s.connectionStatus)
+  const collaboratorCount = useCollaborationStore(s => s.collaborators).length
   const [copied, setCopied] = useState(false)
 
   const handleCopyLink = useCallback(() => {

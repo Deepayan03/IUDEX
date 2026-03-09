@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { motion } from "framer-motion"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -36,8 +36,12 @@ export default function RoomsPage({ userInfo }: RoomsPageProps) {
   const [roomName, setRoomName] = useState("")
   const [joinInput, setJoinInput] = useState("")
   const [joinError, setJoinError] = useState("")
-  const [history, setHistory] = useState<RoomHistoryEntry[]>(() => getRoomHistory())
+  const [history, setHistory] = useState<RoomHistoryEntry[]>([])
   const router = useRouter()
+
+  useEffect(() => {
+    setHistory(getRoomHistory())
+  }, [])
 
   const handleCreate = useCallback(() => {
     const id = generateRoomId()

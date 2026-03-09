@@ -7,16 +7,18 @@ import MenuDropdown                                      from "./MenuDropDown"
 import CommandPalette                                    from "./CommandPalette"
 import Toast                                             from "./Toast"
 import IconBtn                                           from "./Iconbtn"
+import { useEditorTabsStore }                            from "@/store/editorTabs"
+import { useLayoutStore }                                from "@/store/layout"
 
 export type { TitleBarAction, TitleBarProps }
 
 export default function TitleBar({
-  activeFileName,
-  sidebarVisible  = true,
-  terminalVisible = false,
-  isDebugging     = false,
   onAction,
 }: TitleBarProps) {
+  const activeFileName = useEditorTabsStore(s => s.activeFile?.name ?? null)
+  const sidebarVisible = useLayoutStore(s => s.sidebarVisible)
+  const terminalVisible = useLayoutStore(s => s.terminalVisible)
+  const isDebugging = useLayoutStore(s => s.isDebugging)
   const [openMenu,    setOpenMenu]    = useState<OpenMenu>(null)
   const [showPalette, setShowPalette] = useState(false)
   const [toast,       setToast]       = useState<string | null>(null)
