@@ -15,6 +15,7 @@ interface EditorPaneProps {
   terminalVisible:     boolean
   terminalHeight:      number
   loadingFileId?:      string | null
+  crdtMode?:           boolean
   onAction?:           (action: TitleBarAction) => void
   onTabClick:          (tab: FileNode) => void
   onTabClose:          (id: string, e: React.MouseEvent) => void
@@ -26,7 +27,7 @@ interface EditorPaneProps {
 export default function EditorPane({
   activeFile, openTabs, unsavedIds, breadcrumb,
   prefs, terminalVisible, terminalHeight,
-  loadingFileId, onAction,
+  loadingFileId, crdtMode, onAction,
   onTabClick, onTabClose,
   onEditorMount, onContentChange, onTerminalResizeStart,
 }: EditorPaneProps) {
@@ -126,6 +127,7 @@ export default function EditorPane({
                 language={getLanguage(activeFile.name)}
                 defaultValue={activeFile.content ?? `// ${activeFile.name}`}
                 prefs={prefs}
+                crdtMode={crdtMode}
                 onMount={onEditorMount}
                 onChange={onContentChange}
               />

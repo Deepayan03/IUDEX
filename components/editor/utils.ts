@@ -4,6 +4,50 @@ import type { FileNode } from "@/components/editor/types"
 let _id = 0
 export const uid = () => `n${++_id}`
 
+// ─── Deterministic file ID from path ─────────────────────────────────────────
+/** Produces a stable ID for a file/folder node based on its path in the tree. */
+export function fileIdFromPath(parentPath: string | null, name: string): string {
+  return parentPath ? `${parentPath}/${name}` : name
+}
+
+// ─── Tree serialisation helpers (for room-level CRDT sync) ───────────────────
+
+/** Strip local-only fields (content, isOpen) before syncing the tree to the room. */
+export function stripLocalFields(nodes: FileNode[]): FileNode[] {
+  return nodes.map(n => {
+    const stripped: FileNode = { id: n.id, name: n.name, type: n.type }
+    if (n.language) stripped.language = n.language
+    if (n.githubPath) stripped.githubPath = n.githubPath
+    if (n.children) stripped.children = stripLocalFields(n.children)
+    return stripped
+  })
+}
+
+/** Merge a remote tree (no content/isOpen) with local state, preserving local fields. */
+export function mergeRemoteTree(remote: FileNode[], local: FileNode[]): FileNode[] {
+  const localMap = new Map<string, FileNode>()
+  function collect(nodes: FileNode[]) {
+    for (const n of nodes) {
+      localMap.set(n.id, n)
+      if (n.children) collect(n.children)
+    }
+  }
+  collect(local)
+
+  function merge(nodes: FileNode[]): FileNode[] {
+    return nodes.map(n => {
+      const loc = localMap.get(n.id)
+      return {
+        ...n,
+        isOpen: loc?.isOpen ?? (n.type === "folder" ? false : undefined),
+        content: loc?.content ?? n.content,
+        children: n.children ? merge(n.children) : undefined,
+      }
+    })
+  }
+  return merge(remote)
+}
+
 // ─── Language Detection ───────────────────────────────────────────────────────
 export function getLanguage(filename: string): string {
   const ext = filename.split(".").pop()?.toLowerCase()

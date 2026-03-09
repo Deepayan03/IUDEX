@@ -1,10 +1,10 @@
 "use client"
 
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 
 import type { FileNode, InlineCreate, EditorPrefs } from "./types"
 import { DEFAULT_PREFS, loadPrefs, savePrefs }       from "./types"
-import { uid, getLanguage, addNode, toggleFolder, deleteNode, getBreadcrumb } from "./utils"
+import { fileIdFromPath, getLanguage, addNode, toggleFolder, deleteNode, getBreadcrumb } from "./utils"
 import { INITIAL_TREE }                              from "./initialTree"
 import "./editorStyles.css"
 
@@ -20,11 +20,23 @@ import EditorPane                        from "./Editorpane"
 import StatusBar                         from "./Statusbar"
 import PreferencesModal                  from "./PreferencesModal"
 import ImportGitHubModal                 from "./ImportGitHubModal"
+import ImportApprovalModal               from "./ImportApprovalModal"
+import type { ImportRequestData }        from "./ImportApprovalModal"
+import CollaboratorsPanel                from "./CollaboratorsPanel"
+import Toast                             from "./titlebar/Toast"
 import type { EditorInstance }           from "./CodeEditor"
 
-export default function EditorLayout() {
+import { useRealtimeEditor }     from "@/lib/yjs/useRealtimeEditor"
+import { useRoomState }          from "@/lib/yjs/useRoomState"
+import { useCollaborationStore } from "@/store/collaboration"
+
+interface EditorLayoutProps {
+  roomId?: string
+  userInfo?: { userId: string; username: string } | null
+}
+
+export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
   // ── File tree + tabs ──────────────────────────────────────────────────────
-  const [tree,         setTree]         = useState<FileNode[]>(INITIAL_TREE)
   const [activeFile,   setActiveFile]   = useState<FileNode | null>(null)
   const [openTabs,     setOpenTabs]     = useState<FileNode[]>([])
   const [unsavedIds,   setUnsavedIds]   = useState<Set<string>>(new Set())
@@ -51,17 +63,58 @@ export default function EditorLayout() {
 
   // ── GitHub import ───────────────────────────────────────────────────────────
   const [githubImportOpen, setGithubImportOpen] = useState(false)
-  const [githubRepo, setGithubRepo] = useState<{ owner: string; repo: string; branch: string } | null>(null)
   const [loadingFileId, setLoadingFileId] = useState<string | null>(null)
 
   // ── Cursor position (from Monaco) ─────────────────────────────────────────
   const [cursorLine, setCursorLine] = useState(1)
   const [cursorCol,  setCursorCol]  = useState(1)
 
+  // ── Import approval flow ──────────────────────────────────────────────────
+  const [approvalModalData, setApprovalModalData] = useState<ImportRequestData | null>(null)
+  const [importToast, setImportToast] = useState<string | null>(null)
+  const pendingRequestRef = useRef<{ id: string; tree: FileNode[]; meta: { owner: string; repo: string; branch: string } } | null>(null)
+  const handledRequestIds = useRef<Set<string>>(new Set())
+  const handledResponseIds = useRef<Set<string>>(new Set())
+
   // ── Hooks ─────────────────────────────────────────────────────────────────
   const { zoom, zoomIn, zoomOut, zoomReset } = useZoom()
   const { setEditor, getValue, actions: editorActions } = useEditorActions()
   const tabHistory = useTabHistory()
+
+  // ── CRDT Collaboration ──────────────────────────────────────────────────
+  const crdtEnabled = !!roomId && !!userInfo
+
+  // Room-level shared state (tree sync + room-wide awareness)
+  const {
+    tree,
+    githubRepo,
+    setTreeLocal,
+    syncTree,
+    importProject,
+    isCreator,
+    roomCreatorId,
+    providerRef,
+  } = useRoomState({
+    roomId: crdtEnabled ? roomId! : null,
+    userInfo: userInfo ?? null,
+    initialTree: INITIAL_TREE,
+    activeFileName: activeFile?.name,
+  })
+
+  // Per-file content CRDT
+  const fileRoomId = useMemo(
+    () => (crdtEnabled && activeFile ? `${roomId}:${activeFile.id}` : null),
+    [crdtEnabled, roomId, activeFile]
+  )
+
+  const { bindEditor } = useRealtimeEditor({
+    roomId: fileRoomId,
+    userInfo: userInfo ?? null,
+    initialContent: activeFile?.content,
+  })
+
+  const connectionStatus = useCollaborationStore(s => s.connectionStatus)
+  const collaborators    = useCollaborationStore(s => s.collaborators)
 
   // ── Persist prefs on change ───────────────────────────────────────────────
   useEffect(() => { savePrefs(prefs) }, [prefs])
@@ -73,7 +126,11 @@ export default function EditorLayout() {
       setCursorLine(e.position.lineNumber)
       setCursorCol(e.position.column)
     })
-  }, [setEditor])
+    // Bind CRDT if enabled
+    if (crdtEnabled) {
+      bindEditor(editor)
+    }
+  }, [setEditor, crdtEnabled, bindEditor])
 
   // ── Content change → mark dirty ──────────────────────────────────────────
   const handleContentChange = useCallback((value: string) => {
@@ -85,8 +142,9 @@ export default function EditorLayout() {
       return next
     })
     // Keep in-memory content updated so go-back restores correct content
-    setTree(t => updateContent(t, activeFile.id, value))
-  }, [activeFile])
+    // Content updates are local-only (not synced via room tree)
+    setTreeLocal(t => updateContent(t, activeFile.id, value))
+  }, [activeFile, setTreeLocal])
 
   // ── File selection ────────────────────────────────────────────────────────
   const selectFile = useCallback((node: FileNode) => {
@@ -110,20 +168,20 @@ export default function EditorLayout() {
         })
         .then(data => {
           const content: string = data.content
-          setTree(t => updateContent(t, node.id, content))
+          setTreeLocal(t => updateContent(t, node.id, content))
           setActiveFile(prev => prev?.id === node.id ? { ...prev, content } : prev)
           setOpenTabs(prev => prev.map(t => t.id === node.id ? { ...t, content } : t))
         })
         .catch(err => {
           const errorMsg = `// Error loading file: ${(err as Error).message}\n// Path: ${node.githubPath}`
-          setTree(t => updateContent(t, node.id, errorMsg))
+          setTreeLocal(t => updateContent(t, node.id, errorMsg))
           setActiveFile(prev => prev?.id === node.id ? { ...prev, content: errorMsg } : prev)
         })
         .finally(() => {
           setLoadingFileId(prev => prev === node.id ? null : prev)
         })
     }
-  }, [tabHistory, githubRepo])
+  }, [tabHistory, githubRepo, setTreeLocal])
 
   // ── Close tab ─────────────────────────────────────────────────────────────
   const closeTab = useCallback((id: string, e?: React.MouseEvent) => {
@@ -137,22 +195,25 @@ export default function EditorLayout() {
 
   // ── Create node ───────────────────────────────────────────────────────────
   const confirmCreate = useCallback((parentId: string | null, name: string, type: "file" | "folder") => {
+    const id = fileIdFromPath(parentId, name)
     const node: FileNode = {
-      id: uid(), name, type,
+      id, name, type,
       ...(type === "file"
         ? { content: `// ${name}\n`, language: getLanguage(name) }
         : { children: [], isOpen: true }),
     }
-    setTree(t => addNode(t, parentId, node))
+    // Structural change → synced to room
+    syncTree(t => addNode(t, parentId, node))
     setInlineCreate(null)
     if (type === "file") setTimeout(() => selectFile(node), 50)
-  }, [selectFile])
+  }, [selectFile, syncTree])
 
   // ── Delete node ───────────────────────────────────────────────────────────
   const handleDelete = useCallback((id: string) => {
-    setTree(t => deleteNode(t, id))
+    // Structural change → synced to room
+    syncTree(t => deleteNode(t, id))
     closeTab(id)
-  }, [closeTab])
+  }, [closeTab, syncTree])
 
   // ── Save file ─────────────────────────────────────────────────────────────
   const saveFile = useCallback((fileId?: string) => {
@@ -193,14 +254,132 @@ export default function EditorLayout() {
     importedTree: FileNode[],
     meta: { owner: string; repo: string; branch: string }
   ) => {
-    setTree(importedTree)
-    setGithubRepo(meta)
-    setActiveFile(null)
-    setOpenTabs([])
-    setUnsavedIds(new Set())
     setGithubImportOpen(false)
-    setLoadingFileId(null)
-  }, [])
+
+    if (!crdtEnabled || isCreator) {
+      // Creator (or non-CRDT mode) can import directly
+      importProject(importedTree, meta)
+      setActiveFile(null)
+      setOpenTabs([])
+      setUnsavedIds(new Set())
+      setLoadingFileId(null)
+    } else {
+      // Non-creator: send request via awareness
+      const provider = providerRef.current
+      if (!provider || !userInfo) return
+
+      const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      pendingRequestRef.current = { id: requestId, tree: importedTree, meta }
+
+      provider.awareness.setLocalStateField("importRequest", {
+        id: requestId,
+        fromUserId: userInfo.userId,
+        fromUsername: userInfo.username,
+        repoOwner: meta.owner,
+        repoName: meta.repo,
+        repoBranch: meta.branch,
+      })
+
+      setImportToast("Import request sent. Waiting for room owner...")
+    }
+  }, [crdtEnabled, isCreator, importProject, providerRef, userInfo])
+
+  // ── Import approval/rejection handlers (creator only) ─────────────────────
+  const handleApproveImport = useCallback(() => {
+    const provider = providerRef.current
+    if (!provider || !approvalModalData) return
+
+    provider.awareness.setLocalStateField("importResponse", {
+      id: approvalModalData.id,
+      approved: true,
+    })
+
+    setApprovalModalData(null)
+
+    // Clear response after delay so the requester can read it
+    setTimeout(() => {
+      provider.awareness.setLocalStateField("importResponse", null)
+    }, 5000)
+  }, [providerRef, approvalModalData])
+
+  const handleRejectImport = useCallback(() => {
+    const provider = providerRef.current
+    if (!provider || !approvalModalData) return
+
+    provider.awareness.setLocalStateField("importResponse", {
+      id: approvalModalData.id,
+      approved: false,
+    })
+
+    setApprovalModalData(null)
+
+    setTimeout(() => {
+      provider.awareness.setLocalStateField("importResponse", null)
+    }, 5000)
+  }, [providerRef, approvalModalData])
+
+  // ── Awareness listener for import request/response signaling ──────────────
+  useEffect(() => {
+    const provider = providerRef.current
+    if (!provider || !crdtEnabled || !userInfo) return
+
+    const handler = () => {
+      const states = provider.awareness.getStates()
+
+      states.forEach((state, clientId) => {
+        if (clientId === provider.doc.clientID) return
+
+        // If I am the creator, watch for incoming import requests
+        if (isCreator && state.importRequest) {
+          const req = state.importRequest as {
+            id: string
+            fromUserId: string
+            fromUsername: string
+            repoOwner: string
+            repoName: string
+            repoBranch: string
+          }
+          if (!handledRequestIds.current.has(req.id)) {
+            handledRequestIds.current.add(req.id)
+            setApprovalModalData({
+              id: req.id,
+              fromUserId: req.fromUserId,
+              fromUsername: req.fromUsername,
+              repoOwner: req.repoOwner,
+              repoName: req.repoName,
+              repoBranch: req.repoBranch,
+            })
+          }
+        }
+
+        // If I am a requester, watch for import responses from the creator
+        if (!isCreator && state.importResponse && pendingRequestRef.current) {
+          const resp = state.importResponse as { id: string; approved: boolean }
+          if (resp.id === pendingRequestRef.current.id && !handledResponseIds.current.has(resp.id)) {
+            handledResponseIds.current.add(resp.id)
+            if (resp.approved) {
+              const { tree: reqTree, meta: reqMeta } = pendingRequestRef.current
+              importProject(reqTree, reqMeta)
+              setActiveFile(null)
+              setOpenTabs([])
+              setUnsavedIds(new Set())
+              setLoadingFileId(null)
+              setImportToast("Import approved! Project updated.")
+            } else {
+              setImportToast("Import request was rejected by the room owner.")
+            }
+            pendingRequestRef.current = null
+            provider.awareness.setLocalStateField("importRequest", null)
+          }
+        }
+      })
+    }
+
+    provider.awareness.on("change", handler)
+    return () => { provider.awareness.off("change", handler) }
+    // connectionStatus is used as a proxy to re-run when the provider connects/reconnects
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionStatus, crdtEnabled, isCreator, userInfo, importProject])
 
   // ── Debug ─────────────────────────────────────────────────────────────────
   const startDebug = useCallback(() => {
@@ -376,7 +555,7 @@ export default function EditorLayout() {
               inlineCreate={inlineCreate}
               setInlineCreate={setInlineCreate}
               onSelect={selectFile}
-              onToggle={id => setTree(t => toggleFolder(t, id))}
+              onToggle={id => setTreeLocal(t => toggleFolder(t, id))}
               onDelete={handleDelete}
               onAddChild={(parentId, type) => setInlineCreate({ parentId, type })}
               onConfirmCreate={confirmCreate}
@@ -402,6 +581,7 @@ export default function EditorLayout() {
           terminalVisible={terminalVisible}
           terminalHeight={terminalHeight}
           loadingFileId={loadingFileId}
+          crdtMode={crdtEnabled}
           onAction={handleAction}
           onTabClick={selectFile}
           onTabClose={(id, e) => closeTab(id, e)}
@@ -419,8 +599,21 @@ export default function EditorLayout() {
         unsavedCount={unsavedIds.size}
         isDebugging={isDebugging}
         terminalVisible={terminalVisible}
+        connectionStatus={crdtEnabled ? connectionStatus : undefined}
+        collaboratorCount={crdtEnabled ? collaborators.length : undefined}
+        isRoomCreator={crdtEnabled ? isCreator : undefined}
         onAction={a => handleAction(a as TitleBarAction)}
       />
+
+      {/* Collaborators floating panel */}
+      {crdtEnabled && (
+        <CollaboratorsPanel
+          collaborators={collaborators}
+          connectionStatus={connectionStatus}
+          roomCreatorId={roomCreatorId}
+          isRoomCreator={isCreator}
+        />
+      )}
 
       {/* Preferences modal */}
       {prefsOpen && (
@@ -437,6 +630,20 @@ export default function EditorLayout() {
           onImport={handleGitHubImport}
           onClose={() => setGithubImportOpen(false)}
         />
+      )}
+
+      {/* Import approval modal (shown to room creator) */}
+      {approvalModalData && (
+        <ImportApprovalModal
+          request={approvalModalData}
+          onApprove={handleApproveImport}
+          onReject={handleRejectImport}
+        />
+      )}
+
+      {/* Import-related toast notifications */}
+      {importToast && (
+        <Toast message={importToast} onDone={() => setImportToast(null)} />
       )}
     </div>
   )

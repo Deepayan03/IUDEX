@@ -1,5 +1,5 @@
 import type { FileNode } from "./types"
-import { uid, getLanguage } from "./utils"
+import { getLanguage } from "./utils"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -78,13 +78,15 @@ export function githubTreeToFileNodes(
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i]
       const isLast = i === parts.length - 1
+      // Build the cumulative path up to this segment for a deterministic ID
+      const segmentPath = parts.slice(0, i + 1).join("/")
 
       if (!current.children) current.children = []
 
       if (isLast && item.type === "blob") {
         // Insert file node
         current.children.push({
-          id: uid(),
+          id: segmentPath,
           name: part,
           type: "file",
           language: getLanguage(part),
@@ -97,7 +99,7 @@ export function githubTreeToFileNodes(
           (c) => c.type === "folder" && c.name === part
         )
         if (!folder) {
-          folder = { id: uid(), name: part, type: "folder", children: [], isOpen: false }
+          folder = { id: segmentPath, name: part, type: "folder", children: [], isOpen: false }
           current.children.push(folder)
         }
         current = folder

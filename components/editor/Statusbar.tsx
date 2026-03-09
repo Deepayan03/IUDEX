@@ -11,6 +11,9 @@ interface StatusBarProps {
   unsavedCount?:  number
   isDebugging?:   boolean
   terminalVisible?: boolean
+  connectionStatus?: "disconnected" | "connecting" | "connected"
+  collaboratorCount?: number
+  isRoomCreator?: boolean
   onAction?:      (a: "toggle-terminal" | "toggle-sidebar" | "zoom-reset") => void
 }
 
@@ -22,6 +25,9 @@ export default function StatusBar({
   unsavedCount  = 0,
   isDebugging   = false,
   terminalVisible = false,
+  connectionStatus,
+  collaboratorCount,
+  isRoomCreator,
   onAction,
 }: StatusBarProps) {
   const language = activeFile ? getLanguage(activeFile.name) : null
@@ -87,6 +93,18 @@ export default function StatusBar({
             <span style={{ color: "#f87171" }}>Debugging</span>
           </div>
         )}
+
+        {/* Room role indicator */}
+        {isRoomCreator !== undefined && (
+          <div className="status-item flex items-center gap-1 px-2 h-full rounded-sm opacity-90">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={isRoomCreator ? "#4ade80" : "#6b82a6"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            <span style={{ color: isRoomCreator ? "#4ade80" : "#6b82a6" }}>
+              {isRoomCreator ? "Owner" : "Guest"}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Right */}
@@ -133,9 +151,19 @@ export default function StatusBar({
           </svg>
         </div>
 
-        {/* CRDT */}
+        {/* CRDT connection status */}
         <div className="status-item px-2 h-full flex items-center gap-1 cursor-pointer rounded-sm opacity-90 hover:opacity-100">
-          <span style={{ color: "#4caf50" }}>● CRDT</span>
+          {connectionStatus === "connected" ? (
+            <span style={{ color: "#4caf50" }}>
+              {"\u25CF"} {collaboratorCount && collaboratorCount > 0 ? `${collaboratorCount + 1} online` : "Connected"}
+            </span>
+          ) : connectionStatus === "connecting" ? (
+            <span style={{ color: "#f59e0b" }}>{"\u25CF"} Connecting...</span>
+          ) : connectionStatus === "disconnected" ? (
+            <span style={{ color: "#ef4444" }}>{"\u25CF"} Offline</span>
+          ) : (
+            <span style={{ color: "#4caf50" }}>{"\u25CF"} CRDT</span>
+          )}
         </div>
       </div>
     </div>

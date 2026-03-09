@@ -113,3 +113,18 @@
 .glow-btn:active {
   transform: translateY(0);
 }
+
+/* ── Collaborators Panel Scrollbar ───────────────────────────────────── */
+.collab-scrollbar::-webkit-scrollbar       { width: 4px; }
+.collab-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.collab-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(61,90,254,0.18);
+  border-radius: 2px;
+}
+.collab-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(61,90,254,0.3);
+}
+.collab-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(61,90,254,0.18) transparent;
+}

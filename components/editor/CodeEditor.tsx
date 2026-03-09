@@ -14,6 +14,8 @@ interface CodeEditorProps {
   prefs?:      EditorPrefs
   onMount?:    (editor: EditorInstance) => void
   onChange?:   (value: string) => void
+  /** When true, y-monaco drives content. `value` and `onChange` are bypassed. */
+  crdtMode?:   boolean
 }
 
 export default function CodeEditor({
@@ -22,18 +24,26 @@ export default function CodeEditor({
   prefs,
   onMount,
   onChange,
+  crdtMode     = false,
 }: CodeEditorProps) {
+  // In CRDT mode, y-monaco controls content. We don't pass value or onChange.
+  const valueProps = crdtMode
+    ? {}
+    : {
+        value: defaultValue,
+        onChange: (val: string | undefined) => {
+          if (val !== undefined) onChange?.(val)
+        },
+      }
+
   return (
     <MonacoEditor
       height="100%"
       language={language}
       theme={prefs?.theme ?? "vs-dark"}
-      value={defaultValue}
+      {...valueProps}
       onMount={(editor) => {
         onMount?.(editor as EditorInstance)
-      }}
-      onChange={(val) => {
-        if (val !== undefined) onChange?.(val)
       }}
       options={{
         fontSize:              prefs?.fontSize         ?? 13,
