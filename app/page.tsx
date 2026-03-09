@@ -1,13 +1,22 @@
-import AuthButtons from "@/components/auth/authButtons"
+"use client"
+
+import { C } from "@/components/landing/constants"
+import Navbar from "@/components/landing/Navbar"
+import HeroSection from "@/components/landing/HeroSection"
+import FeaturesSection from "@/components/landing/FeaturesSection"
+import HowItWorksSection from "@/components/landing/HowItWorksSection"
+import EditorPreviewSection from "@/components/landing/EditorPreviewSection"
+import CTAFooter from "@/components/landing/CTAFooter"
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-neutral-950 text-white flex flex-col items-center justify-center gap-6">
-      <h1 className="text-4xl font-bold">IUDEX</h1>
-      <p className="text-neutral-400">
-        CRDT-powered collaborative code editor
-      </p>
-      <AuthButtons />
-    </div>
+    <main className="ui-font" style={{ background: C.bgDeepest, color: C.textBody }}>
+      <Navbar />
+      <HeroSection />
+      <FeaturesSection />
+      <HowItWorksSection />
+      <EditorPreviewSection />
+      <CTAFooter />
+    </main>
   )
 }

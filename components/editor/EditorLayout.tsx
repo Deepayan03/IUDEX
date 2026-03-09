@@ -28,6 +28,7 @@ import type { EditorInstance }           from "./CodeEditor"
 
 import { useRealtimeEditor }     from "@/lib/yjs/useRealtimeEditor"
 import { useRoomState }          from "@/lib/yjs/useRoomState"
+import { addRoomToHistory }      from "@/lib/roomHistory"
 import { useCollaborationStore } from "@/store/collaboration"
 
 interface EditorLayoutProps {
@@ -83,6 +84,11 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
 
   // ── CRDT Collaboration ──────────────────────────────────────────────────
   const crdtEnabled = !!roomId && !!userInfo
+
+  // ── Record room visit in history ─────────────────────────────────────────
+  useEffect(() => {
+    if (roomId) addRoomToHistory(roomId)
+  }, [roomId])
 
   // Room-level shared state (tree sync + room-wide awareness)
   const {
@@ -602,6 +608,7 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
         connectionStatus={crdtEnabled ? connectionStatus : undefined}
         collaboratorCount={crdtEnabled ? collaborators.length : undefined}
         isRoomCreator={crdtEnabled ? isCreator : undefined}
+        roomId={roomId}
         onAction={a => handleAction(a as TitleBarAction)}
       />
 

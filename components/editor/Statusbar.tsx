@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useCallback } from "react"
 import { getLanguage } from "./utils"
 import type { FileNode } from "./types"
 
@@ -14,6 +15,7 @@ interface StatusBarProps {
   connectionStatus?: "disconnected" | "connecting" | "connected"
   collaboratorCount?: number
   isRoomCreator?: boolean
+  roomId?: string
   onAction?:      (a: "toggle-terminal" | "toggle-sidebar" | "zoom-reset") => void
 }
 
@@ -28,8 +30,19 @@ export default function StatusBar({
   connectionStatus,
   collaboratorCount,
   isRoomCreator,
+  roomId,
   onAction,
 }: StatusBarProps) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopyLink = useCallback(() => {
+    if (!roomId) return
+    const url = `${window.location.origin}/editor/${roomId}`
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }, [roomId])
   const language = activeFile ? getLanguage(activeFile.name) : null
   const langLabel = language
     ? language.charAt(0).toUpperCase() + language.slice(1)
@@ -150,6 +163,23 @@ export default function StatusBar({
             <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
           </svg>
         </div>
+
+        {/* Share room link */}
+        {roomId && (
+          <div
+            onClick={handleCopyLink}
+            className="status-item px-2 h-full flex items-center gap-1 cursor-pointer rounded-sm opacity-80 hover:opacity-100"
+            title="Copy room link to clipboard"
+            style={{ color: copied ? "#4ade80" : undefined }}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+              <polyline points="16 6 12 2 8 6"/>
+              <line x1="12" y1="2" x2="12" y2="15"/>
+            </svg>
+            <span>{copied ? "Copied!" : "Share"}</span>
+          </div>
+        )}
 
         {/* CRDT connection status */}
         <div className="status-item px-2 h-full flex items-center gap-1 cursor-pointer rounded-sm opacity-90 hover:opacity-100">
