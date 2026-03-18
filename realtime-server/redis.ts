@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import Redis from "ioredis";
 import * as Y from "yjs";
 
 // ── PubSub Interface ──────────────────────────────────────────────────────────
@@ -56,14 +57,11 @@ class MemoryPubSub implements PubSubService {
 // ── Redis PubSub (multi-server production) ────────────────────────────────────
 
 class RedisPubSub implements PubSubService {
-  private pub: import("ioredis").default;
-  private sub: import("ioredis").default;
+  private pub: Redis;
+  private sub: Redis;
   private handlers = new Map<string, (update: Uint8Array) => void>();
 
   constructor(redisUrl: string) {
-    // Dynamic import would be cleaner, but for simplicity use sync require
-    // ioredis is a dependency so this is safe
-    const Redis = require("ioredis").default ?? require("ioredis");
     this.pub = new Redis(redisUrl, { lazyConnect: true });
     this.sub = new Redis(redisUrl, { lazyConnect: true });
 

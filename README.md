@@ -103,7 +103,7 @@ In simple terms:
 ```
                          +------------------+
                          |   Landing Page   |
-                         |   (app/page.tsx) |
+                         | (src/app/page.tsx) |
                          +--------+---------+
                                   |
                          "Login with Google"
@@ -298,73 +298,60 @@ RootLayout
 ```
 iudex/
 |
-+-- app/                          # Next.js App Router pages
-|   +-- page.tsx                  # Landing page (login screen)
-|   +-- layout.tsx                # Root layout with session provider
-|   +-- editor/
-|   |   +-- [roomId]/
-|   |       +-- page.tsx          # Editor page (auth-gated, passes roomId)
-|   +-- api/
-|       +-- auth/
-|       |   +-- [...nextauth]/
-|       |       +-- route.ts      # NextAuth API route
-|       +-- github/
-|           +-- tree/route.ts     # Fetches GitHub repo tree
-|           +-- content/route.ts  # Fetches individual file content
++-- src/
+|   +-- app/                              # Next.js App Router routes and API handlers
+|   |   +-- layout.tsx                    # Root layout with shared providers
+|   |   +-- page.tsx                      # Landing page
+|   |   +-- rooms/page.tsx                # Rooms dashboard
+|   |   +-- editor/[roomId]/page.tsx      # Auth-gated editor route
+|   |   +-- api/
+|   |       +-- activity-log/             # Activity log APIs
+|   |       +-- auth/[...nextauth]/       # NextAuth route
+|   |       +-- github/                   # GitHub tree/content proxy routes
+|   |
+|   +-- features/                         # Product features own their UI + logic
+|   |   +-- auth/
+|   |   |   +-- components/
+|   |   |       +-- AuthButtons.tsx
+|   |   +-- landing/
+|   |   |   +-- components/               # Marketing / landing page sections
+|   |   |   +-- constants.ts
+|   |   +-- rooms/
+|   |   |   +-- components/
+|   |   |       +-- RoomsPage.tsx
+|   |   +-- editor/
+|   |       +-- components/               # Editor shell, panels, modals
+|   |       |   +-- titlebar/             # Menus, palette, quick open, recent rooms
+|   |       +-- hooks/                    # Editor-specific React hooks
+|   |       +-- lib/                      # Tree utils, editor types, GitHub helpers
+|   |       +-- collaboration/            # Yjs/editor collaboration hooks
+|   |       +-- activity-log/             # Activity log types and hook
+|   |       +-- styles/
+|   |
+|   +-- shared/                           # Cross-feature infrastructure
+|       +-- auth/                         # NextAuth config
+|       +-- providers/                    # App-wide React providers
+|       +-- supabase/                     # Shared Supabase client
+|       +-- lib/                          # Small cross-feature utilities
+|       +-- state/                        # Zustand stores shared across features
 |
-+-- components/
-|   +-- auth/
-|   |   +-- authButtons.tsx       # Login/Logout buttons
-|   +-- providers/
-|   |   +-- SessionProviderWrapper.tsx  # NextAuth session context
-|   +-- editor/
-|       +-- EditorLayout.tsx      # Main orchestrator (state + layout)
-|       +-- CodeEditor.tsx        # Monaco Editor wrapper
-|       +-- Activitybar.tsx       # Left icon strip
-|       +-- Sidebar.tsx           # File explorer panel
-|       +-- Editorpane.tsx        # Tabs + editor + terminal area
-|       +-- Statusbar.tsx         # Bottom status bar
-|       +-- TerminalPanel.tsx     # Built-in terminal emulator
-|       +-- PreferencesModal.tsx  # Settings dialog
-|       +-- ImportGitHubModal.tsx # GitHub import dialog
-|       +-- fileTreeNode.tsx      # Recursive file/folder tree node
-|       +-- CreationInput.tsx     # Inline new file/folder input
-|       +-- types.ts              # Core TypeScript types
-|       +-- utils.ts              # Utility functions (tree ops, language detection)
-|       +-- initialTree.ts        # Default file tree on first load
-|       +-- editorStyles.css      # Custom CSS for the editor shell
-|       +-- github.ts             # GitHub URL parsing + tree conversion
-|       +-- titlebar/
-|       |   +-- Titlebar.tsx      # Top menu bar
-|       |   +-- MenuDropDown.tsx  # Dropdown menu component
-|       |   +-- CommandPalette.tsx # Cmd+Shift+P command search
-|       |   +-- Menudata.tsx      # Menu items, shortcuts, toast messages
-|       |   +-- Toast.tsx         # Brief notification popup
-|       |   +-- Iconbtn.tsx       # Reusable icon button
-|       |   +-- types.ts          # Title bar TypeScript types
-|       +-- hooks/
-|           +-- UserEditorActions.tsx  # Monaco editor action wrappers
-|           +-- UserTabHistory.tsx     # Back/forward navigation history
-|           +-- Usezoom.tsx           # UI zoom in/out/reset
-|           +-- UseGlobalShortcuts.ts # Global keyboard shortcut handler
-|
-+-- lib/
-|   +-- auth/
-|   |   +-- authOptions.ts       # NextAuth configuration (Google provider)
-|   +-- yjs/
-|       +-- useRealtimeEditor.ts  # React hook: Yjs + WebSocket + Monaco binding
-|
-+-- store/
-|   +-- collaboration.ts         # Zustand store (connection status, collaborators)
-|
-+-- realtime-server/              # Standalone WebSocket server
-    +-- server.ts                 # Main server (y-websocket protocol)
-    +-- persistence.ts            # Supabase document persistence
-    +-- redis.ts                  # Redis pub/sub for horizontal scaling
-    +-- schema.sql                # SQL table definition for Supabase
-    +-- package.json              # Server dependencies
-    +-- tsconfig.json             # Server TypeScript config
++-- public/                               # Static assets
++-- realtime-server/                      # Separate collaboration server
+|   +-- server.ts                         # y-websocket-compatible server
+|   +-- persistence.ts                    # Supabase-backed document persistence
+|   +-- redis.ts                          # Redis pub/sub for multi-instance sync
+|   +-- schema.sql                        # Database schema
+|   +-- package.json
+|   +-- tsconfig.json
++-- README.md
 ```
+
+Long-term structure rules:
+
+- Put route files and API handlers in `src/app` only.
+- Keep feature-specific UI, hooks, and helpers inside that feature under `src/features/*`.
+- Move anything reused across multiple features into `src/shared/*`.
+- Keep the realtime websocket server isolated in `realtime-server/` so app code and server code do not get coupled together.
 
 ---
 

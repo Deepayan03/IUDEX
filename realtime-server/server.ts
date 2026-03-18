@@ -41,6 +41,12 @@ interface DocumentRoom {
   ydoc: Y.Doc;
   awareness: awarenessProtocol.Awareness;
   clients: Set<WSClient>;
+  clientAwarenessIds: Map<WSClient, Set<number>>;
+  updateHandler: (update: Uint8Array, origin: unknown) => void;
+  awarenessUpdateHandler: (
+    changes: { added: number[]; updated: number[]; removed: number[] },
+    origin: unknown
+  ) => void;
 }
 
 const docs = new Map<string, DocumentRoom>();
@@ -62,8 +68,52 @@ async function getOrCreateRoom(docName: string): Promise<DocumentRoom> {
   // Load persisted state
   await persistence.bindState(docName, ydoc);
 
-  room = { ydoc, awareness, clients: new Set() };
+  room = {
+    ydoc,
+    awareness,
+    clients: new Set(),
+    clientAwarenessIds: new Map(),
+    updateHandler: (update: Uint8Array, origin: unknown) => {
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, messageSync);
+      syncProtocol.writeUpdate(encoder, update);
+      const message = encoding.toUint8Array(encoder);
+      const excludeConn =
+        origin && room?.clients.has(origin as WSClient)
+          ? (origin as WSClient)
+          : undefined;
+      broadcastToRoom(room!, message, excludeConn);
+    },
+    awarenessUpdateHandler: (
+      {
+        added,
+        updated,
+        removed,
+      }: {
+        added: number[];
+        updated: number[];
+        removed: number[];
+      },
+      origin: unknown
+    ) => {
+      const changedClients = [...added, ...updated, ...removed];
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, messageAwareness);
+      encoding.writeVarUint8Array(
+        encoder,
+        awarenessProtocol.encodeAwarenessUpdate(room!.awareness, changedClients)
+      );
+      const excludeConn =
+        origin && room?.clients.has(origin as WSClient)
+          ? (origin as WSClient)
+          : undefined;
+      broadcastToRoom(room!, encoding.toUint8Array(encoder), excludeConn);
+    },
+  };
   docs.set(docName, room);
+
+  room.ydoc.on("update", room.updateHandler);
+  room.awareness.on("update", room.awarenessUpdateHandler);
 
   // Wire to pub/sub for cross-server sync
   if (pubsub) {
@@ -93,6 +143,8 @@ async function closeRoom(docName: string): Promise<void> {
     null
   );
 
+  room.ydoc.off("update", room.updateHandler);
+  room.awareness.off("update", room.awarenessUpdateHandler);
   room.ydoc.destroy();
   docs.delete(docName);
   console.log(`[room] Closed room: ${docName}`);
@@ -145,6 +197,30 @@ function initSync(conn: WSClient, room: DocumentRoom): void {
   }
 }
 
+function decodeAwarenessClients(update: Uint8Array): {
+  addedOrUpdated: number[];
+  removed: number[];
+} {
+  const decoder = decoding.createDecoder(update);
+  const addedOrUpdated: number[] = [];
+  const removed: number[] = [];
+  const len = decoding.readVarUint(decoder);
+
+  for (let i = 0; i < len; i += 1) {
+    const clientId = decoding.readVarUint(decoder);
+    decoding.readVarUint(decoder); // awareness clock
+    const rawState = decoding.readVarString(decoder);
+
+    if (rawState === "null") {
+      removed.push(clientId);
+    } else {
+      addedOrUpdated.push(clientId);
+    }
+  }
+
+  return { addedOrUpdated, removed };
+}
+
 // ── Message handler ───────────────────────────────────────────────────────
 
 function handleMessage(
@@ -160,7 +236,7 @@ function handleMessage(
       case messageSync: {
         const encoder = encoding.createEncoder();
         encoding.writeVarUint(encoder, messageSync);
-        const syncMessageType = syncProtocol.readSyncMessage(
+        syncProtocol.readSyncMessage(
           decoder,
           encoder,
           room.ydoc,
@@ -179,6 +255,14 @@ function handleMessage(
 
       case messageAwareness: {
         const update = decoding.readVarUint8Array(decoder);
+        const trackedIds =
+          room.clientAwarenessIds.get(conn) ?? new Set<number>();
+        room.clientAwarenessIds.set(conn, trackedIds);
+
+        const { addedOrUpdated, removed } = decodeAwarenessClients(update);
+        addedOrUpdated.forEach((clientId) => trackedIds.add(clientId));
+        removed.forEach((clientId) => trackedIds.delete(clientId));
+
         awarenessProtocol.applyAwarenessUpdate(
           room.awareness,
           update,
@@ -248,45 +332,7 @@ async function handleConnection(
   // Get or create room
   const room = await getOrCreateRoom(docName);
   room.clients.add(conn);
-
-  // Wire Y.Doc updates to broadcast to room clients
-  const updateHandler = (update: Uint8Array, origin: unknown) => {
-    // Don't echo back to the origin client
-    const encoder = encoding.createEncoder();
-    encoding.writeVarUint(encoder, messageSync);
-    syncProtocol.writeUpdate(encoder, update);
-    const message = encoding.toUint8Array(encoder);
-    broadcastToRoom(room, message, origin === conn ? conn : undefined);
-  };
-  room.ydoc.on("update", updateHandler);
-
-  // Wire awareness updates to broadcast
-  const awarenessChangeHandler = (
-    {
-      added,
-      updated,
-      removed,
-    }: {
-      added: number[];
-      updated: number[];
-      removed: number[];
-    },
-    origin: unknown
-  ) => {
-    const changedClients = [...added, ...updated, ...removed];
-    const encoder = encoding.createEncoder();
-    encoding.writeVarUint(encoder, messageAwareness);
-    encoding.writeVarUint8Array(
-      encoder,
-      awarenessProtocol.encodeAwarenessUpdate(room.awareness, changedClients)
-    );
-    broadcastToRoom(
-      room,
-      encoding.toUint8Array(encoder),
-      origin === conn ? conn : undefined
-    );
-  };
-  room.awareness.on("update", awarenessChangeHandler);
+  room.clientAwarenessIds.set(conn, new Set());
 
   // Send initial sync
   initSync(conn, room);
@@ -304,16 +350,20 @@ async function handleConnection(
 
   // Handle disconnect
   conn.on("close", () => {
-    room.ydoc.off("update", updateHandler);
-    room.awareness.off("update", awarenessChangeHandler);
     room.clients.delete(conn);
+    const trackedAwarenessIds = Array.from(
+      room.clientAwarenessIds.get(conn) ?? []
+    );
+    room.clientAwarenessIds.delete(conn);
 
     // Remove awareness state for this client
-    awarenessProtocol.removeAwarenessStates(
-      room.awareness,
-      [room.ydoc.clientID],
-      null
-    );
+    if (trackedAwarenessIds.length > 0) {
+      awarenessProtocol.removeAwarenessStates(
+        room.awareness,
+        trackedAwarenessIds,
+        conn
+      );
+    }
 
     console.log(
       `[ws] Client disconnected from ${docName} (${room.clients.size} remaining)`
