@@ -100,7 +100,12 @@ export function useRoomState({
   activeFile,
   cursorPosition,
 }: UseRoomStateOptions): UseRoomStateReturn {
-  const [tree, setTree] = useState<FileNode[]>(initialTree);
+  const initialTreeRef = useRef(initialTree);
+  initialTreeRef.current = initialTree;
+
+  const [tree, setTree] = useState<FileNode[]>(() =>
+    roomId ? [] : initialTree
+  );
   const [githubRepo, setGithubRepo] = useState<GithubMeta | null>(null);
   const [roomCreatorId, setRoomCreatorId] = useState<string | null>(null);
 
@@ -127,6 +132,15 @@ export function useRoomState({
   useEffect(() => {
     treeRef.current = tree;
   }, [tree]);
+
+  useEffect(() => {
+    if (!roomId) {
+      setTree(initialTreeRef.current);
+      setGithubRepo(null);
+      setRoomCreatorId(null);
+      hasHydratedRemoteTreeRef.current = true;
+    }
+  }, [roomId]);
 
   useEffect(() => {
     activeFileRef.current =
@@ -226,6 +240,9 @@ export function useRoomState({
 
     cleanup();
     disposedRef.current = false;
+    setTree([]);
+    setGithubRepo(null);
+    setRoomCreatorId(null);
     reconnectAttemptRef.current = 0;
     hasConnectedRef.current = false;
     updateConnection({
@@ -393,7 +410,9 @@ export function useRoomState({
       const existingCreator = ymap.get("creator") as string | undefined;
 
       if (!existingTree) {
-        const stripped = stripLocalFields(treeRef.current);
+        const baseTree = treeRef.current.length > 0 ? treeRef.current : initialTreeRef.current;
+        const stripped = stripLocalFields(baseTree);
+        setTree(baseTree);
         ymap.set("tree", JSON.stringify(stripped));
         ymap.set("creator", userId);
         hasHydratedRemoteTreeRef.current = true;
