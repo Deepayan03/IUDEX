@@ -69,6 +69,7 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
   const {
     tree,
     githubRepo,
+    isImportedProjectReady,
     setTreeLocal,
     syncTree,
     importProject,
@@ -107,6 +108,7 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
     quickOpenFiles,
     breadcrumb,
     editorPaneKey,
+    pendingLoadFileId,
     selectFile,
     closeTab,
     confirmCreate,
@@ -115,6 +117,7 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
   } = useEditorFileManager({
     tree,
     githubRepo,
+    isImportedProjectReady,
     activeFileId,
     openTabIds,
     setTreeLocal,
@@ -123,10 +126,28 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
     tabHistory,
   });
 
+  const shouldOpenRealtimeDoc =
+    crdtEnabled &&
+    !!activeFileId &&
+    !!activeFile &&
+    (!activeFile.githubPath ||
+      activeFile.content !== undefined ||
+      isImportedProjectReady);
+
   const fileRoomId = useMemo(
-    () => (crdtEnabled && activeFileId ? `${roomId}:${activeFileId}` : null),
-    [activeFileId, crdtEnabled, roomId],
+    () => (shouldOpenRealtimeDoc && activeFileId ? `${roomId}:${activeFileId}` : null),
+    [activeFileId, roomId, shouldOpenRealtimeDoc],
   );
+
+  const activeFileSourceState =
+    activeFile?.githubPath && activeFile.content === undefined
+      ? pendingLoadFileId === activeFile.id &&
+        (!githubRepo || !isImportedProjectReady)
+        ? "waiting-for-repo"
+        : loadingFileId === activeFile.id
+          ? "loading-content"
+          : null
+      : null;
 
   const { bindEditor, isDocumentReady } = useRealtimeEditor({
     roomId: fileRoomId,
@@ -257,7 +278,7 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
         prefs={prefs}
         terminalVisible={terminalVisible}
         terminalHeight={terminalHeight}
-        loadingFileId={loadingFileId}
+        activeFileSourceState={activeFileSourceState}
         crdtEnabled={crdtEnabled}
         isDocumentReady={isDocumentReady}
         onTabClose={(id, e) => closeTab(id, e)}

@@ -45,7 +45,7 @@ interface EditorWorkbenchProps {
   prefs: EditorPrefs;
   terminalVisible: boolean;
   terminalHeight: number;
-  loadingFileId: string | null;
+  activeFileSourceState: "waiting-for-repo" | "loading-content" | null;
   crdtEnabled: boolean;
   isDocumentReady: boolean;
   onTabClose: (id: string, e: React.MouseEvent) => void;
@@ -88,7 +88,7 @@ export default function EditorWorkbench({
   prefs,
   terminalVisible,
   terminalHeight,
-  loadingFileId,
+  activeFileSourceState,
   crdtEnabled,
   isDocumentReady,
   onTabClose,
@@ -181,7 +181,7 @@ export default function EditorWorkbench({
           prefs={prefs}
           terminalVisible={terminalVisible}
           terminalHeight={terminalHeight}
-          loadingFileId={loadingFileId}
+          activeFileSourceState={activeFileSourceState}
           crdtMode={crdtEnabled}
           crdtPending={crdtEnabled && !!activeFile && !isDocumentReady}
           onAction={onAction}

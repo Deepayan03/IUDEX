@@ -9,7 +9,7 @@ import * as Y from "yjs";
 
 import type { CollaboratorInfo } from "@/shared/state/collaboration";
 import type { FileNode } from "@/features/editor/lib/types";
-import { mergeRemoteTree } from "@/features/editor/lib/utils";
+import { mergeRemoteTree, stripLocalFields } from "@/features/editor/lib/utils";
 import { getUserColor } from "@/features/editor/collaboration/shared";
 import type {
   ActiveFilePresence,
@@ -73,6 +73,25 @@ export function applyRoomMapSnapshot({
   if (rawCreator) {
     setRoomCreatorId(rawCreator);
   }
+}
+
+interface WriteImportedProjectSnapshotOptions {
+  ydoc: Y.Doc;
+  tree: FileNode[];
+  githubRepo: GithubMeta | null;
+}
+
+export function writeImportedProjectSnapshot({
+  ydoc,
+  tree,
+  githubRepo,
+}: WriteImportedProjectSnapshotOptions): void {
+  const ymap = ydoc.getMap("room");
+
+  ydoc.transact(() => {
+    ymap.set("tree", JSON.stringify(stripLocalFields(tree)));
+    ymap.set("githubRepo", githubRepo ? JSON.stringify(githubRepo) : "");
+  });
 }
 
 interface CreateLocalAwarenessStateOptions {

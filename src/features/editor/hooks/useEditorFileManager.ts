@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
@@ -46,6 +47,7 @@ type LogActivity = (
 interface UseEditorFileManagerOptions {
   tree: FileNode[];
   githubRepo: GithubMeta | null;
+  isImportedProjectReady: boolean;
   activeFileId: string | null;
   openTabIds: string[];
   setTreeLocal: Dispatch<SetStateAction<FileNode[]>>;
@@ -62,6 +64,7 @@ interface UseEditorFileManagerReturn {
   quickOpenFiles: Array<{ node: FileNode; path: string }>;
   breadcrumb: string[];
   editorPaneKey: string;
+  pendingLoadFileId: string | null;
   selectFile: (node: FileNode) => void;
   closeTab: (id: string, e?: React.MouseEvent) => void;
   confirmCreate: (
@@ -76,6 +79,7 @@ interface UseEditorFileManagerReturn {
 export function useEditorFileManager({
   tree,
   githubRepo,
+  isImportedProjectReady,
   activeFileId,
   openTabIds,
   setTreeLocal,
@@ -84,8 +88,9 @@ export function useEditorFileManager({
   tabHistory,
 }: UseEditorFileManagerOptions): UseEditorFileManagerReturn {
   const nodeMapRef = useRef<Map<string, FileNode>>(new Map());
-  const previousGithubRepoKeyRef = useRef<string | null>(null);
   const inFlightLoadControllersRef = useRef(new Map<string, AbortController>());
+  const pendingLoadFileIdRef = useRef<string | null>(null);
+  const [pendingLoadFileId, setPendingLoadFileId] = useState<string | null>(null);
 
   const nodeMap = useMemo(() => {
     const map = new Map<string, FileNode>();
@@ -201,6 +206,30 @@ export function useEditorFileManager({
     [setTreeLocal],
   );
 
+  const startGitHubFileLoad = useCallback(
+    (
+      node: FileNode,
+      repo: { owner: string; repo: string; branch: string },
+    ) => {
+      pendingLoadFileIdRef.current = null;
+      setPendingLoadFileId(null);
+
+      const tabs = useEditorTabsStore.getState();
+      const existingController = inFlightLoadControllersRef.current.get(node.id);
+
+      if (existingController) {
+        tabs.setLoadingFileId(node.id);
+        return;
+      }
+
+      const controller = new AbortController();
+      inFlightLoadControllersRef.current.set(node.id, controller);
+      tabs.setLoadingFileId(node.id);
+      loadGitHubFile(node, repo, controller.signal);
+    },
+    [loadGitHubFile],
+  );
+
   const selectFile = useCallback(
     (node: FileNode) => {
       const tabs = useEditorTabsStore.getState();
@@ -211,59 +240,44 @@ export function useEditorFileManager({
 
       logActivity("select-file", node.id, node.name);
 
-      if (node.githubPath && node.content === undefined && githubRepo) {
-        const existingController = inFlightLoadControllersRef.current.get(
-          node.id,
-        );
-
-        if (!existingController) {
-          const controller = new AbortController();
-          inFlightLoadControllersRef.current.set(node.id, controller);
-
+      if (node.githubPath && node.content === undefined) {
+        if (!githubRepo || !isImportedProjectReady) {
+          pendingLoadFileIdRef.current = node.id;
+          setPendingLoadFileId(node.id);
           tabs.setLoadingFileId(node.id);
-          loadGitHubFile(node, githubRepo, controller.signal);
-        } else {
-          tabs.setLoadingFileId(node.id);
+          return;
         }
+
+        startGitHubFileLoad(node, githubRepo);
       }
     },
-    [tabHistory, logActivity, githubRepo, loadGitHubFile],
+    [
+      tabHistory,
+      logActivity,
+      githubRepo,
+      isImportedProjectReady,
+      startGitHubFileLoad,
+    ],
   );
 
   useEffect(() => {
-    const repoKey = githubRepo
-      ? `${githubRepo.owner}/${githubRepo.repo}@${githubRepo.branch}`
-      : null;
+    const pendingId = pendingLoadFileIdRef.current;
+    if (!pendingId || !githubRepo || !isImportedProjectReady) return;
 
-    const previousRepoKey = previousGithubRepoKeyRef.current;
-    previousGithubRepoKeyRef.current = repoKey;
+    const pendingNode = nodeMapRef.current.get(pendingId);
+    if (!pendingNode || !pendingNode.githubPath || pendingNode.content !== undefined) {
+      pendingLoadFileIdRef.current = null;
+      setPendingLoadFileId((current) => (current === pendingId ? null : current));
 
-    if (!repoKey || repoKey === previousRepoKey) return;
-    if (!activeFile?.githubPath || activeFile.content !== undefined) return;
-
-    const repo = githubRepo;
-    if (!repo) return;
-
-    const existingController = inFlightLoadControllersRef.current.get(
-      activeFile.id,
-    );
-    if (existingController) {
-      useEditorTabsStore.getState().setLoadingFileId(activeFile.id);
+      const tabs = useEditorTabsStore.getState();
+      if (tabs.loadingFileId === pendingId) {
+        tabs.setLoadingFileId(null);
+      }
       return;
     }
 
-    const controller = new AbortController();
-    const inFlightLoads = inFlightLoadControllersRef.current;
-    inFlightLoads.set(activeFile.id, controller);
-
-    useEditorTabsStore.getState().setLoadingFileId(activeFile.id);
-    loadGitHubFile(activeFile, repo, controller.signal);
-
-    return () => {
-      controller.abort();
-      inFlightLoads.delete(activeFile.id);
-    };
-  }, [activeFile, githubRepo, loadGitHubFile]);
+    startGitHubFileLoad(pendingNode, githubRepo);
+  }, [githubRepo, isImportedProjectReady, nodeMap, startGitHubFileLoad]);
 
   useEffect(() => {
     const inFlightLoads = inFlightLoadControllersRef.current;
@@ -357,6 +371,7 @@ export function useEditorFileManager({
     quickOpenFiles,
     breadcrumb,
     editorPaneKey,
+    pendingLoadFileId,
     selectFile,
     closeTab,
     confirmCreate,

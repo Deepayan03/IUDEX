@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import {
@@ -13,6 +13,7 @@ import {
   createLocalAwarenessState,
   applyRoomMapSnapshot,
   buildCollaborators,
+  writeImportedProjectSnapshot,
 } from "@/features/editor/collaboration/roomStateHelpers";
 import {
   describeCloseReason,
@@ -43,6 +44,8 @@ interface UseRoomStateReturn {
   tree: FileNode[];
   /** GitHub repo metadata (synced to all clients). */
   githubRepo: GithubMeta | null;
+  /** Whether imported GitHub project metadata is ready for file loading. */
+  isImportedProjectReady: boolean;
   /**
    * Update the tree locally only (e.g. toggle folder, update content).
    * These changes are NOT synced to other clients.
@@ -65,6 +68,17 @@ interface UseRoomStateReturn {
   isCreator: boolean;
   /** Ref to the WebSocket provider (for awareness access). */
   providerRef: React.MutableRefObject<WebsocketProvider | null>;
+}
+
+function hasGitHubBackedFiles(nodes: FileNode[]): boolean {
+  for (const node of nodes) {
+    if (node.githubPath) return true;
+    if (node.children && hasGitHubBackedFiles(node.children)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────
@@ -146,6 +160,12 @@ export function useRoomState({
         : null;
   }, [cursorLine, cursorColumn]);
 
+  const hasImportedGitHubProject = useMemo(
+    () => hasGitHubBackedFiles(tree),
+    [tree],
+  );
+  const isImportedProjectReady = !hasImportedGitHubProject || githubRepo !== null;
+
   const setCollaborators = useCollaborationStore((s) => s.setCollaborators);
   const roomConnectionStatus = useCollaborationStore((s) => s.connectionStatus);
   const updateConnection = useCollaborationStore((s) => s.updateConnection);
@@ -180,11 +200,13 @@ export function useRoomState({
     ymap.set("tree", JSON.stringify(stripped));
   }, []);
 
-  const writeGithubRepoToYMap = useCallback((meta: GithubMeta | null) => {
+  const writeImportedProjectToYMap = useCallback((
+    newTree: FileNode[],
+    meta: GithubMeta | null,
+  ) => {
     const ydoc = ydocRef.current;
     if (!ydoc) return;
-    const ymap = ydoc.getMap("room");
-    ymap.set("githubRepo", meta ? JSON.stringify(meta) : "");
+    writeImportedProjectSnapshot({ ydoc, tree: newTree, githubRepo: meta });
   }, []);
 
   // ── Public API ──────────────────────────────────────────────────────
@@ -204,10 +226,9 @@ export function useRoomState({
     (newTree: FileNode[], meta: GithubMeta) => {
       setTree(newTree);
       setGithubRepo(meta);
-      writeTreeToYMap(newTree);
-      writeGithubRepoToYMap(meta);
+      writeImportedProjectToYMap(newTree, meta);
     },
-    [writeTreeToYMap, writeGithubRepoToYMap]
+    [writeImportedProjectToYMap]
   );
 
   // ── Connect to room-level Y.Doc ────────────────────────────────────
@@ -463,6 +484,7 @@ export function useRoomState({
   return {
     tree,
     githubRepo,
+    isImportedProjectReady,
     setTreeLocal: setTree,
     syncTree,
     importProject,

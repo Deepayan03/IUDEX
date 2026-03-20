@@ -14,7 +14,7 @@ interface EditorPaneProps {
   prefs:               EditorPrefs
   terminalVisible:     boolean
   terminalHeight:      number
-  loadingFileId?:      string | null
+  activeFileSourceState?: "waiting-for-repo" | "loading-content" | null
   crdtMode?:           boolean
   crdtPending?:        boolean
   onAction?:           (action: TitleBarAction) => void
@@ -28,7 +28,7 @@ interface EditorPaneProps {
 export default function EditorPane({
   activeFile, openTabs, unsavedIds, breadcrumb,
   prefs, terminalVisible, terminalHeight,
-  loadingFileId, crdtMode, crdtPending, onAction,
+  activeFileSourceState, crdtMode, crdtPending, onAction,
   onTabClick, onTabClose,
   onEditorMount, onContentChange, onTerminalResizeStart,
 }: EditorPaneProps) {
@@ -112,14 +112,23 @@ export default function EditorPane({
       {/* ── Monaco / Loading / Welcome ────────────────────────────────────── */}
       <div className="flex-1 min-h-0 relative overflow-hidden">
         {activeFile ? (
-          loadingFileId === activeFile.id ? (
+          activeFileSourceState ? (
             <div className="flex flex-col items-center justify-center h-full animate-fadeIn gap-3" style={{ color: "#3a5080" }}>
               <div style={{
                 width: 20, height: 20, border: "2px solid #3d5afe",
                 borderTopColor: "transparent", borderRadius: "50%",
                 animation: "spin 0.6s linear infinite",
               }} />
-              <span style={{ fontSize: 12 }}>Loading {activeFile.name}...</span>
+              <span style={{ fontSize: 12 }}>
+                {activeFileSourceState === "waiting-for-repo"
+                  ? `Preparing ${activeFile.name}...`
+                  : `Loading ${activeFile.name}...`}
+              </span>
+              {activeFileSourceState === "waiting-for-repo" && (
+                <span style={{ fontSize: 11, color: "#2d4267" }}>
+                  Waiting for project metadata to finish syncing
+                </span>
+              )}
               <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
             </div>
           ) : (
