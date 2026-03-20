@@ -91,6 +91,8 @@ export function useEditorFileManager({
   const nodeMapRef = useRef<Map<string, FileNode>>(new Map());
   const inFlightLoadControllersRef = useRef(new Map<string, AbortController>());
   const pendingLoadFileIdRef = useRef<string | null>(null);
+  const pendingContentSyncRef = useRef(new Map<string, string>());
+  const contentSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pendingLoadFileId, setPendingLoadFileId] = useState<string | null>(null);
 
   const nodeMap = useMemo(() => {
@@ -142,14 +144,63 @@ export function useEditorFileManager({
     }
   }, [nodeMap]);
 
+  const flushMirroredContentSync = useCallback(() => {
+    if (contentSyncTimerRef.current !== null) {
+      clearTimeout(contentSyncTimerRef.current);
+      contentSyncTimerRef.current = null;
+    }
+
+    const pendingEntries = Array.from(pendingContentSyncRef.current.entries());
+    if (pendingEntries.length === 0) return;
+
+    pendingContentSyncRef.current.clear();
+    logEditorFlow("file-manager", "room-content-sync:flush", {
+      fileIds: pendingEntries.map(([fileId]) => fileId),
+      count: pendingEntries.length,
+    });
+
+    syncTree((currentTree) =>
+      pendingEntries.reduce(
+        (nextTree, [fileId, content]) => updateContent(nextTree, fileId, content),
+        currentTree,
+      ),
+    );
+  }, [syncTree]);
+
+  const scheduleMirroredContentSync = useCallback(
+    (fileId: string, content: string) => {
+      pendingContentSyncRef.current.set(fileId, content);
+
+      if (contentSyncTimerRef.current !== null) {
+        clearTimeout(contentSyncTimerRef.current);
+      }
+
+      contentSyncTimerRef.current = setTimeout(() => {
+        flushMirroredContentSync();
+      }, 350);
+
+      logEditorFlow("file-manager", "room-content-sync:scheduled", {
+        fileId,
+        size: content.length,
+      });
+    },
+    [flushMirroredContentSync],
+  );
+
   const handleContentChange = useCallback(
     (value: string) => {
       const fileId = useEditorTabsStore.getState().activeFileId;
       if (!fileId) return;
+
+      const activeNode = nodeMapRef.current.get(fileId);
       useEditorTabsStore.getState().markDirty(fileId);
       setTreeLocal((t) => updateContent(t, fileId, value));
+
+      if (activeNode?.type === "file" && !activeNode.githubPath) {
+        scheduleMirroredContentSync(fileId, value);
+      }
     },
-    [setTreeLocal],
+    [scheduleMirroredContentSync, setTreeLocal],
   );
 
   const loadGitHubFile = useCallback(
@@ -334,12 +385,13 @@ export function useEditorFileManager({
     const inFlightLoads = inFlightLoadControllersRef.current;
 
     return () => {
+      flushMirroredContentSync();
       for (const controller of inFlightLoads.values()) {
         controller.abort();
       }
       inFlightLoads.clear();
     };
-  }, []);
+  }, [flushMirroredContentSync]);
 
   const closeTab = useCallback(
     (id: string, e?: React.MouseEvent) => {

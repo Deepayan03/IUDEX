@@ -12,11 +12,16 @@ export function fileIdFromPath(parentPath: string | null, name: string): string 
 
 // ─── Tree serialisation helpers (for room-level CRDT sync) ───────────────────
 
-/** Strip local-only fields (content, isOpen) before syncing the tree to the room. */
+/**
+ * Strip local-only fields before syncing the tree to the room.
+ * Preserve content for non-GitHub files so fresh clients can hydrate those
+ * files even when no per-file CRDT doc is currently populated.
+ */
 export function stripLocalFields(nodes: FileNode[]): FileNode[] {
   return nodes.map(n => {
     const stripped: FileNode = { id: n.id, name: n.name, type: n.type }
     if (n.language) stripped.language = n.language
+    if (n.content !== undefined && !n.githubPath) stripped.content = n.content
     if (n.githubPath) stripped.githubPath = n.githubPath
     if (n.children) stripped.children = stripLocalFields(n.children)
     return stripped
