@@ -54,6 +54,8 @@ export function useRealtimeEditor({
   const bindingRef = useRef<MonacoBinding | null>(null);
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const disposedRef = useRef(false);
+  const providerSyncedRef = useRef(false);
+  const bindingRequestRef = useRef(0);
   const userId = userInfo?.userId ?? null;
   const username = userInfo?.username ?? null;
 
@@ -65,6 +67,8 @@ export function useRealtimeEditor({
   // Clean up current connection
   const cleanup = useCallback(() => {
     disposedRef.current = true;
+    providerSyncedRef.current = false;
+    bindingRequestRef.current += 1;
     if (bindingRef.current) {
       bindingRef.current.destroy();
       bindingRef.current = null;
@@ -78,6 +82,23 @@ export function useRealtimeEditor({
       ydocRef.current.destroy();
       ydocRef.current = null;
     }
+  }, []);
+
+  const maybeSeedInitialContent = useCallback(() => {
+    const ydoc = ydocRef.current;
+    if (!ydoc || !providerSyncedRef.current) return;
+
+    const nextContent = initialContentRef.current;
+    if (nextContent === undefined) return;
+
+    const ytext = ydoc.getText("content");
+    if (ytext.length > 0) return;
+
+    ydoc.transact(() => {
+      if (ytext.length === 0 && initialContentRef.current !== undefined) {
+        ytext.insert(0, initialContentRef.current);
+      }
+    });
   }, []);
 
   // Create binding when we have an editor and a provider
@@ -98,19 +119,23 @@ export function useRealtimeEditor({
     if (!model) return;
 
     const ytext = ydoc.getText("content");
-
-    // Seed the Y.Text with initial file content if the document is empty
-    // (no persisted state from the server). This ensures existing file content
-    // from the tree / GitHub import appears in the editor.
-    if (ytext.length === 0 && initialContentRef.current) {
-      ytext.insert(0, initialContentRef.current);
-    }
+    const requestId = ++bindingRequestRef.current;
+    maybeSeedInitialContent();
 
     // Dynamically import y-monaco to avoid SSR issues (it imports monaco-editor which requires window)
     const { MonacoBinding } = await import("y-monaco");
 
-    // Guard: if cleanup ran while the import was in-flight, don't create a binding
-    if (disposedRef.current) return;
+    // Guard: if cleanup or a newer bind request ran while the import was in-flight,
+    // don't attach a stale binding to the editor.
+    if (
+      disposedRef.current ||
+      bindingRequestRef.current !== requestId ||
+      providerRef.current !== provider ||
+      ydocRef.current !== ydoc ||
+      editorRef.current !== editor
+    ) {
+      return;
+    }
 
     bindingRef.current = new MonacoBinding(
       ytext,
@@ -125,7 +150,7 @@ export function useRealtimeEditor({
     model.onWillDispose(() => {
       bindingRef.current = null;
     });
-  }, []);
+  }, [maybeSeedInitialContent]);
 
   // Setup connection when roomId changes
   useEffect(() => {
@@ -156,6 +181,19 @@ export function useRealtimeEditor({
     });
     providerRef.current = provider;
 
+    const syncHandler = (isSynced: boolean) => {
+      if (disposedRef.current || providerRef.current !== provider) return;
+      providerSyncedRef.current = isSynced;
+      if (isSynced) {
+        maybeSeedInitialContent();
+      }
+    };
+    provider.on("sync", syncHandler);
+    providerSyncedRef.current = provider.synced;
+    if (provider.synced) {
+      maybeSeedInitialContent();
+    }
+
     // Set local awareness state (used by y-monaco for remote cursor display)
     const color = getUserColor(userId);
     provider.awareness.setLocalStateField("user", {
@@ -171,6 +209,7 @@ export function useRealtimeEditor({
     }
 
     return () => {
+      provider.off("sync", syncHandler);
       cleanup();
     };
   }, [
@@ -179,18 +218,13 @@ export function useRealtimeEditor({
     username,
     cleanup,
     createBinding,
+    maybeSeedInitialContent,
   ]);
 
   // ── Seed content when it arrives late (e.g. GitHub lazy-loaded files) ────
-  // If the Y.Doc exists and is empty but we now have content, insert it.
   useEffect(() => {
-    const ydoc = ydocRef.current;
-    if (!ydoc || !initialContent) return;
-    const ytext = ydoc.getText("content");
-    if (ytext.length === 0) {
-      ytext.insert(0, initialContent);
-    }
-  }, [initialContent]);
+    maybeSeedInitialContent();
+  }, [initialContent, maybeSeedInitialContent]);
 
   // Bind editor callback — just stores the editor ref and attempts binding.
   // The actual content seeding is driven by initialContent (hook param + ref).
