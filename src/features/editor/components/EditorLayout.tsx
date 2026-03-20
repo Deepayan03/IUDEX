@@ -112,11 +112,15 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
     [crdtEnabled, roomId, activeFile]
   )
 
-  const { bindEditor } = useRealtimeEditor({
+  const { bindEditor, isDocumentReady } = useRealtimeEditor({
     roomId: fileRoomId,
     userInfo: userInfo ?? null,
     initialContent: activeFile?.content,
   })
+
+  const effectiveLoadingFileId =
+    loadingFileId ??
+    (crdtEnabled && activeFile && !isDocumentReady ? activeFile.id : null)
 
   // ── Activity Log ────────────────────────────────────────────────────────
   const { logActivity, undoEntry, loadMore: loadMoreActivities } = useActivityLog({
@@ -514,7 +518,7 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
           prefs={prefs}
           terminalVisible={terminalVisible}
           terminalHeight={terminalHeight}
-          loadingFileId={loadingFileId}
+          loadingFileId={effectiveLoadingFileId}
           crdtMode={crdtEnabled}
           onAction={handleAction}
           onTabClick={selectFile}
