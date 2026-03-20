@@ -5,36 +5,21 @@ import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import type { MonacoBinding } from "y-monaco";
 import type * as Monaco from "monaco-editor";
-
-// ── Cursor color palette ──────────────────────────────────────────────────
-
-const CURSOR_COLORS = [
-  "#f87171", // red
-  "#fb923c", // orange
-  "#facc15", // yellow
-  "#4ade80", // green
-  "#22d3ee", // cyan
-  "#60a5fa", // blue
-  "#a78bfa", // violet
-  "#f472b6", // pink
-  "#34d399", // emerald
-  "#fbbf24", // amber
-];
-
-function getUserColor(userId: string): string {
-  let hash = 0;
-  for (let i = 0; i < userId.length; i++) {
-    hash = (hash << 5) - hash + userId.charCodeAt(i);
-    hash |= 0;
-  }
-  return CURSOR_COLORS[Math.abs(hash) % CURSOR_COLORS.length];
-}
+import {
+  loadMonacoBinding,
+  seedYTextIfEmpty,
+} from "@/features/editor/collaboration/realtimeEditorHelpers";
+import {
+  getUserColor,
+  resolveRealtimeWsUrl,
+} from "@/features/editor/collaboration/shared";
+import type { CollaborationUserInfo } from "@/features/editor/collaboration/types";
 
 // ── Hook ──────────────────────────────────────────────────────────────────
 
 interface UseRealtimeEditorOptions {
   roomId: string | null;
-  userInfo: { userId: string; username: string } | null;
+  userInfo: CollaborationUserInfo | null;
   /** Content to seed into an empty Y.Doc (from file tree / GitHub import). */
   initialContent?: string;
 }
@@ -44,13 +29,6 @@ interface UseRealtimeEditorReturn {
   bindEditor: (editor: Monaco.editor.IStandaloneCodeEditor) => void;
   /** True once the file room has synced at least once and Monaco is bound. */
   isDocumentReady: boolean;
-}
-
-let monacoBindingModulePromise: Promise<typeof import("y-monaco")> | null = null;
-
-function loadMonacoBinding() {
-  monacoBindingModulePromise ??= import("y-monaco");
-  return monacoBindingModulePromise;
 }
 
 export function useRealtimeEditor({
@@ -73,7 +51,10 @@ export function useRealtimeEditor({
   // Keep initialContent in a ref so it's always current when createBinding
   // runs, regardless of render/effect timing. This avoids stale closures.
   const initialContentRef = useRef<string | undefined>(initialContent);
-  initialContentRef.current = initialContent;
+
+  useEffect(() => {
+    initialContentRef.current = initialContent;
+  }, [initialContent]);
 
   const markDocumentReady = useCallback(() => {
     if (!roomId || disposedRef.current) return;
@@ -106,17 +87,7 @@ export function useRealtimeEditor({
     const ydoc = ydocRef.current;
     if (!ydoc || !providerSyncedRef.current) return;
 
-    const nextContent = initialContentRef.current;
-    if (nextContent === undefined) return;
-
-    const ytext = ydoc.getText("content");
-    if (ytext.length > 0) return;
-
-    ydoc.transact(() => {
-      if (ytext.length === 0 && initialContentRef.current !== undefined) {
-        ytext.insert(0, initialContentRef.current);
-      }
-    });
+    seedYTextIfEmpty(ydoc, initialContentRef.current);
   }, []);
 
   // Create binding when we have an editor and a provider
@@ -173,7 +144,6 @@ export function useRealtimeEditor({
   // Setup connection when roomId changes
   useEffect(() => {
     if (!roomId || !userId || !username) {
-      setReadyRoomId(null);
       cleanup();
       return;
     }
@@ -181,14 +151,9 @@ export function useRealtimeEditor({
     // Clean up previous connection
     cleanup();
     disposedRef.current = false;
-    setReadyRoomId(null);
     void loadMonacoBinding();
 
-    const wsUrl =
-      process.env.NEXT_PUBLIC_WS_URL ??
-      (typeof window !== "undefined"
-        ? `ws://${window.location.hostname}:4000`
-        : "ws://localhost:4000");
+    const wsUrl = resolveRealtimeWsUrl();
 
     // Create new Y.Doc and WebSocket provider
     const ydoc = new Y.Doc();
@@ -216,7 +181,7 @@ export function useRealtimeEditor({
     if (provider.synced) {
       initialSyncCompleteRef.current = true;
       maybeSeedInitialContent();
-      markDocumentReady();
+      queueMicrotask(markDocumentReady);
     }
 
     // Set local awareness state (used by y-monaco for remote cursor display)

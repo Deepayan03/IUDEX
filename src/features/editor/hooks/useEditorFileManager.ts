@@ -11,7 +11,7 @@ import {
 } from "react";
 
 import type { ActivityAction, ActivityDelta } from "@/features/editor/activity-log/types";
-import type { GithubMeta } from "@/features/editor/collaboration/useRoomState";
+import type { GithubMeta } from "@/features/editor/collaboration/types";
 import type { FileNode } from "@/features/editor/lib/types";
 import {
   addNode,

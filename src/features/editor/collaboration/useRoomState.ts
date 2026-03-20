@@ -8,58 +8,34 @@ import {
   type CollaboratorInfo,
 } from "@/shared/state/collaboration";
 import type { FileNode } from "@/features/editor/lib/types";
-import { stripLocalFields, mergeRemoteTree } from "@/features/editor/lib/utils";
-
-// ── Cursor color palette (shared with useRealtimeEditor) ─────────────────
-
-const CURSOR_COLORS = [
-  "#f87171", "#fb923c", "#facc15", "#4ade80", "#22d3ee",
-  "#60a5fa", "#a78bfa", "#f472b6", "#34d399", "#fbbf24",
-];
-
-function getUserColor(userId: string): string {
-  let hash = 0;
-  for (let i = 0; i < userId.length; i++) {
-    hash = (hash << 5) - hash + userId.charCodeAt(i);
-    hash |= 0;
-  }
-  return CURSOR_COLORS[Math.abs(hash) % CURSOR_COLORS.length];
-}
-
-function describeCloseReason(event: CloseEvent | null): string {
-  if (event?.reason) return event.reason;
-
-  switch (event?.code) {
-    case 1000:
-      return "Collaboration session closed";
-    case 1001:
-      return "Server went away";
-    case 1006:
-      return "Network connection lost";
-    case 1011:
-      return "Collaboration server error";
-    default:
-      return "Connection lost";
-  }
-}
+import { stripLocalFields } from "@/features/editor/lib/utils";
+import {
+  createLocalAwarenessState,
+  applyRoomMapSnapshot,
+  buildCollaborators,
+} from "@/features/editor/collaboration/roomStateHelpers";
+import {
+  describeCloseReason,
+  resolveRealtimeWsUrl,
+} from "@/features/editor/collaboration/shared";
+import type {
+  ActiveFilePresence,
+  CollaborationUserInfo,
+  CursorPosition,
+  GithubMeta,
+} from "@/features/editor/collaboration/types";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
-export interface GithubMeta {
-  owner: string;
-  repo: string;
-  branch: string;
-}
-
 interface UseRoomStateOptions {
   roomId: string | null;
-  userInfo: { userId: string; username: string } | null;
+  userInfo: CollaborationUserInfo | null;
   /** The default tree used to seed the room if no shared state exists yet. */
   initialTree: FileNode[];
   /** File the local user currently has open (broadcast via awareness). */
-  activeFile?: { id: string; name: string } | null;
+  activeFile?: ActiveFilePresence | null;
   /** Cursor position for the active file (broadcast via awareness). */
-  cursorPosition?: { lineNumber: number; column: number } | null;
+  cursorPosition?: CursorPosition | null;
 }
 
 interface UseRoomStateReturn {
@@ -101,7 +77,6 @@ export function useRoomState({
   cursorPosition,
 }: UseRoomStateOptions): UseRoomStateReturn {
   const initialTreeRef = useRef(initialTree);
-  initialTreeRef.current = initialTree;
 
   const [tree, setTree] = useState<FileNode[]>(() =>
     roomId ? [] : initialTree
@@ -126,8 +101,25 @@ export function useRoomState({
   // Keep volatile values in refs so reconnect logic doesn't re-run on every
   // cursor movement or active tab change.
   const treeRef = useRef(tree);
-  const activeFileRef = useRef(activeFile ?? null);
-  const cursorPositionRef = useRef(cursorPosition ?? null);
+  const activeFileRef = useRef<ActiveFilePresence | null>(activeFile ?? null);
+  const cursorPositionRef = useRef<CursorPosition | null>(cursorPosition ?? null);
+
+  useEffect(() => {
+    initialTreeRef.current = initialTree;
+  }, [initialTree]);
+
+  const resetRoomSnapshot = useCallback(
+    (
+      nextTree: FileNode[],
+      nextGithubRepo: GithubMeta | null,
+      nextRoomCreatorId: string | null,
+    ) => {
+      setTree(nextTree);
+      setGithubRepo(nextGithubRepo);
+      setRoomCreatorId(nextRoomCreatorId);
+    },
+    [],
+  );
 
   useEffect(() => {
     treeRef.current = tree;
@@ -135,12 +127,10 @@ export function useRoomState({
 
   useEffect(() => {
     if (!roomId) {
-      setTree(initialTreeRef.current);
-      setGithubRepo(null);
-      setRoomCreatorId(null);
+      resetRoomSnapshot(initialTreeRef.current, null, null);
       hasHydratedRemoteTreeRef.current = true;
     }
-  }, [roomId]);
+  }, [roomId, resetRoomSnapshot]);
 
   useEffect(() => {
     activeFileRef.current =
@@ -197,14 +187,6 @@ export function useRoomState({
     ymap.set("githubRepo", meta ? JSON.stringify(meta) : "");
   }, []);
 
-  const stripTreeContent = useCallback((nodes: FileNode[]): FileNode[] => {
-    return nodes.map((node) => ({
-      ...node,
-      content: undefined,
-      children: node.children ? stripTreeContent(node.children) : undefined,
-    }));
-  }, []);
-
   // ── Public API ──────────────────────────────────────────────────────
 
   const syncTree = useCallback(
@@ -240,9 +222,9 @@ export function useRoomState({
 
     cleanup();
     disposedRef.current = false;
-    setTree([]);
-    setGithubRepo(null);
-    setRoomCreatorId(null);
+    queueMicrotask(() => {
+      resetRoomSnapshot([], null, null);
+    });
     reconnectAttemptRef.current = 0;
     hasConnectedRef.current = false;
     updateConnection({
@@ -252,11 +234,7 @@ export function useRoomState({
       lastDisconnectReason: null,
     });
 
-    const wsUrl =
-      process.env.NEXT_PUBLIC_WS_URL ??
-      (typeof window !== "undefined"
-        ? `ws://${window.location.hostname}:4000`
-        : "ws://localhost:4000");
+    const wsUrl = resolveRealtimeWsUrl();
 
     const metaRoomId = `${roomId}:__meta__`;
     const ydoc = new Y.Doc();
@@ -273,63 +251,29 @@ export function useRoomState({
     const ymap = ydoc.getMap("room");
 
     // ── Awareness: broadcast user presence at room level ──────────
-    const color = getUserColor(userId);
-    provider.awareness.setLocalState({
-      ...provider.awareness.getLocalState(),
-      user: {
-        name: username,
-        color,
-        userId,
-      },
-      activeFile: activeFileRef.current
-        ? {
-            id: activeFileRef.current.id,
-            name: activeFileRef.current.name,
-          }
-        : null,
-      cursor:
-        activeFileRef.current && cursorPositionRef.current
-          ? {
-              lineNumber: cursorPositionRef.current.lineNumber,
-              column: cursorPositionRef.current.column,
-            }
-          : null,
-    });
+    provider.awareness.setLocalState(
+      createLocalAwarenessState({
+        existingState:
+          (provider.awareness.getLocalState() as Record<string, unknown> | null) ??
+          null,
+        userInfo: {
+          userId,
+          username,
+        },
+        activeFile: activeFileRef.current,
+        cursor: cursorPositionRef.current,
+      }),
+    );
 
     // ── Observe shared Y.Map for tree + githubRepo changes ───────
     const ymapObserver = () => {
-      const rawTree = ymap.get("tree") as string | undefined;
-      const rawRepo = ymap.get("githubRepo") as string | undefined;
-      const rawCreator = ymap.get("creator") as string | undefined;
-
-      if (rawTree) {
-        try {
-          const remote: FileNode[] = JSON.parse(rawTree);
-          setTree((prev) =>
-            mergeRemoteTree(
-              remote,
-              hasHydratedRemoteTreeRef.current ? prev : stripTreeContent(prev)
-            )
-          );
-          hasHydratedRemoteTreeRef.current = true;
-        } catch {
-          /* ignore malformed JSON */
-        }
-      }
-
-      if (rawRepo) {
-        try {
-          setGithubRepo(JSON.parse(rawRepo));
-        } catch {
-          /* ignore */
-        }
-      } else if (rawRepo === "") {
-        setGithubRepo(null);
-      }
-
-      if (rawCreator) {
-        setRoomCreatorId(rawCreator);
-      }
+      applyRoomMapSnapshot({
+        ymap,
+        setTree,
+        setGithubRepo,
+        setRoomCreatorId,
+        hasHydratedRemoteTreeRef,
+      });
     };
 
     // ── Connection status ─────────────────────────────────────────
@@ -433,50 +377,12 @@ export function useRoomState({
 
     // ── Track room-wide collaborators via awareness ──────────────
     const awarenessHandler = () => {
-      const states = provider.awareness.getStates();
-      const collabs: CollaboratorInfo[] = [];
-
-      states.forEach((state, clientId) => {
-        if (clientId === ydoc.clientID) return;
-        const user = state.user as
-          | { name?: string; color?: string; userId?: string }
-          | undefined;
-        const activeFileState = state.activeFile as
-          | { id?: string; name?: string }
-          | string
-          | null
-          | undefined;
-        const cursorState = state.cursor as
-          | { lineNumber?: number; column?: number }
-          | null
-          | undefined;
-        if (user) {
-          collabs.push({
-            clientId,
-            userId: user.userId ?? `client-${clientId}`,
-            username: user.name ?? "Anonymous",
-            color: user.color ?? "#888",
-            activeFile:
-              typeof activeFileState === "string"
-                ? activeFileState
-                : activeFileState?.name ?? undefined,
-            activeFileId:
-              typeof activeFileState === "string"
-                ? undefined
-                : activeFileState?.id,
-            cursor:
-              typeof cursorState?.lineNumber === "number" &&
-              typeof cursorState?.column === "number"
-                ? {
-                    lineNumber: cursorState.lineNumber,
-                    column: cursorState.column,
-                  }
-                : undefined,
-          });
-        }
-      });
-
-      setCollaborators(collabs);
+      const states = provider.awareness.getStates() as Map<number, unknown>;
+      const collaborators: CollaboratorInfo[] = buildCollaborators(
+        states,
+        ydoc.clientID,
+      );
+      setCollaborators(collaborators);
     };
 
     ymap.observe(ymapObserver);
@@ -500,7 +406,7 @@ export function useRoomState({
     userId,
     username,
     cleanup,
-    stripTreeContent,
+    resetRoomSnapshot,
     setCollaborators,
     updateConnection,
     resetConnection,
