@@ -13,6 +13,7 @@ import {
   getUserColor,
   resolveRealtimeWsUrl,
 } from "@/features/editor/collaboration/shared";
+import { logEditorFlow } from "@/features/editor/lib/debug";
 import type { CollaborationUserInfo } from "@/features/editor/collaboration/types";
 
 // ── Hook ──────────────────────────────────────────────────────────────────
@@ -50,7 +51,12 @@ export function useRealtimeEditor({
 
   // Keep initialContent in a ref so it's always current when createBinding
   // runs, regardless of render/effect timing. This avoids stale closures.
+  const roomIdRef = useRef<string | null>(roomId);
   const initialContentRef = useRef<string | undefined>(initialContent);
+
+  useEffect(() => {
+    roomIdRef.current = roomId;
+  }, [roomId]);
 
   useEffect(() => {
     initialContentRef.current = initialContent;
@@ -87,6 +93,11 @@ export function useRealtimeEditor({
     const ydoc = ydocRef.current;
     if (!ydoc || !providerSyncedRef.current) return;
 
+    logEditorFlow("realtime-editor", "seed:attempt", {
+      roomId: roomIdRef.current ?? "none",
+      hasInitialContent: initialContentRef.current !== undefined,
+      initialContentLength: initialContentRef.current?.length ?? 0,
+    });
     seedYTextIfEmpty(ydoc, initialContentRef.current);
   }, []);
 
@@ -111,6 +122,13 @@ export function useRealtimeEditor({
     const requestId = ++bindingRequestRef.current;
     maybeSeedInitialContent();
 
+    logEditorFlow("realtime-editor", "binding:create", {
+      roomId: roomIdRef.current ?? "none",
+      requestId,
+      yTextLength: ytext.length,
+      hasInitialContent: initialContentRef.current !== undefined,
+    });
+
     const { MonacoBinding } = await loadMonacoBinding();
 
     // Guard: if cleanup or a newer bind request ran while the import was in-flight,
@@ -131,6 +149,10 @@ export function useRealtimeEditor({
       new Set([editor]),
       provider.awareness
     );
+    logEditorFlow("realtime-editor", "binding:attached", {
+      roomId: roomIdRef.current ?? "none",
+      yTextLength: ytext.length,
+    });
     markDocumentReady();
 
     // y-monaco auto-destroys itself via model.onWillDispose when the Monaco editor
@@ -154,6 +176,12 @@ export function useRealtimeEditor({
     void loadMonacoBinding();
 
     const wsUrl = resolveRealtimeWsUrl();
+    logEditorFlow("realtime-editor", "connect:start", {
+      roomId,
+      userId,
+      wsUrl,
+      hasInitialContent: initialContentRef.current !== undefined,
+    });
 
     // Create new Y.Doc and WebSocket provider
     const ydoc = new Y.Doc();
@@ -170,6 +198,11 @@ export function useRealtimeEditor({
     const syncHandler = (isSynced: boolean) => {
       if (disposedRef.current || providerRef.current !== provider) return;
       providerSyncedRef.current = isSynced;
+      logEditorFlow("realtime-editor", "sync:event", {
+        roomId,
+        isSynced,
+        hasInitialContent: initialContentRef.current !== undefined,
+      });
       if (isSynced) {
         initialSyncCompleteRef.current = true;
         maybeSeedInitialContent();
@@ -215,13 +248,16 @@ export function useRealtimeEditor({
   // ── Seed content when it arrives late (e.g. GitHub lazy-loaded files) ────
   useEffect(() => {
     maybeSeedInitialContent();
-  }, [initialContent, maybeSeedInitialContent]);
+  }, [maybeSeedInitialContent, initialContent]);
 
   // Bind editor callback — just stores the editor ref and attempts binding.
   // The actual content seeding is driven by initialContent (hook param + ref).
   const bindEditor = useCallback(
     (editor: Monaco.editor.IStandaloneCodeEditor) => {
       editorRef.current = editor;
+      logEditorFlow("realtime-editor", "editor:mounted", {
+        roomId: roomIdRef.current ?? "none",
+      });
       createBinding();
     },
     [createBinding]

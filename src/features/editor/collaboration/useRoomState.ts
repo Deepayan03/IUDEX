@@ -8,6 +8,7 @@ import {
   type CollaboratorInfo,
 } from "@/shared/state/collaboration";
 import type { FileNode } from "@/features/editor/lib/types";
+import { logEditorFlow } from "@/features/editor/lib/debug";
 import { stripLocalFields } from "@/features/editor/lib/utils";
 import {
   createLocalAwarenessState,
@@ -224,11 +225,16 @@ export function useRoomState({
 
   const importProject = useCallback(
     (newTree: FileNode[], meta: GithubMeta) => {
+      logEditorFlow("room-state", "importProject", {
+        roomId: roomId ?? "local",
+        treeNodes: newTree.length,
+        githubRepo: `${meta.owner}/${meta.repo}@${meta.branch}`,
+      });
       setTree(newTree);
       setGithubRepo(meta);
       writeImportedProjectToYMap(newTree, meta);
     },
-    [writeImportedProjectToYMap]
+    [roomId, writeImportedProjectToYMap]
   );
 
   // ── Connect to room-level Y.Doc ────────────────────────────────────
@@ -243,6 +249,11 @@ export function useRoomState({
 
     cleanup();
     disposedRef.current = false;
+    logEditorFlow("room-state", "connect:start", {
+      roomId,
+      userId,
+      wsUrl: resolveRealtimeWsUrl(),
+    });
     queueMicrotask(() => {
       resetRoomSnapshot([], null, null);
     });
@@ -288,6 +299,14 @@ export function useRoomState({
 
     // ── Observe shared Y.Map for tree + githubRepo changes ───────
     const ymapObserver = () => {
+      const rawTree = ymap.get("tree") as string | undefined;
+      const rawRepo = ymap.get("githubRepo") as string | undefined;
+      logEditorFlow("room-state", "snapshot:received", {
+        roomId,
+        hasTree: !!rawTree,
+        hasGithubRepo: !!rawRepo,
+        treeBytes: rawTree?.length ?? 0,
+      });
       applyRoomMapSnapshot({
         ymap,
         setTree,
@@ -306,6 +325,10 @@ export function useRoomState({
       if (disposedRef.current || providerRef.current !== provider) return;
 
       if (status === "connecting") {
+        logEditorFlow("room-state", "connection:connecting", {
+          roomId,
+          reconnectAttempt: reconnectAttemptRef.current,
+        });
         if (hasConnectedRef.current) {
           reconnectAttemptRef.current += 1;
         }
@@ -319,6 +342,10 @@ export function useRoomState({
       }
 
       if (status === "connected") {
+        logEditorFlow("room-state", "connection:connected", {
+          roomId,
+          synced: provider.synced,
+        });
         hasConnectedRef.current = true;
         reconnectAttemptRef.current = 0;
         updateConnection({
@@ -331,6 +358,9 @@ export function useRoomState({
         return;
       }
 
+      logEditorFlow("room-state", "connection:disconnected", {
+        roomId,
+      });
       updateConnection({
         connectionStatus: "disconnected",
         syncStatus: "idle",
@@ -353,6 +383,7 @@ export function useRoomState({
       updateConnection({
         lastDisconnectReason: "Unable to reach the collaboration server",
       });
+      logEditorFlow("room-state", "connection:error", { roomId });
     };
 
     const syncHandler = (isSynced: boolean) => {
@@ -373,6 +404,14 @@ export function useRoomState({
 
       const existingTree = ymap.get("tree") as string | undefined;
       const existingCreator = ymap.get("creator") as string | undefined;
+      const existingRepo = ymap.get("githubRepo") as string | undefined;
+
+      logEditorFlow("room-state", "sync:complete", {
+        roomId,
+        hasTree: !!existingTree,
+        hasGithubRepo: !!existingRepo,
+        hasCreator: !!existingCreator,
+      });
 
       if (!existingTree) {
         const baseTree = treeRef.current.length > 0 ? treeRef.current : initialTreeRef.current;

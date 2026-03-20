@@ -13,6 +13,7 @@ import {
 
 import type { ActivityAction, ActivityDelta } from "@/features/editor/activity-log/types";
 import type { GithubMeta } from "@/features/editor/collaboration/types";
+import { logEditorFlow } from "@/features/editor/lib/debug";
 import type { FileNode } from "@/features/editor/lib/types";
 import {
   addNode,
@@ -164,6 +165,12 @@ export function useEditorFileManager({
         path: node.githubPath!,
       });
 
+      logEditorFlow("file-manager", "github-load:start", {
+        fileId: node.id,
+        githubPath: node.githubPath ?? null,
+        repo: `${repo.owner}/${repo.repo}@${repo.branch}`,
+      });
+
       fetch(`/api/github/content?${params}`, signal ? { signal } : undefined)
         .then((res) => {
           if (!res.ok) throw new Error(`Failed to load file (${res.status})`);
@@ -176,6 +183,10 @@ export function useEditorFileManager({
           if (!latestNode || latestNode.content !== undefined) return;
 
           const content: string = data.content;
+          logEditorFlow("file-manager", "github-load:success", {
+            fileId: node.id,
+            size: content.length,
+          });
           setTreeLocal((t) => updateContent(t, node.id, content));
         })
         .catch((err) => {
@@ -190,6 +201,10 @@ export function useEditorFileManager({
           if (!latestNode || latestNode.content !== undefined) return;
 
           const errorMsg = `// Error loading file: ${(err as Error).message}\n// Path: ${node.githubPath}`;
+          logEditorFlow("file-manager", "github-load:error", {
+            fileId: node.id,
+            message: (err as Error).message,
+          });
           setTreeLocal((t) => updateContent(t, node.id, errorMsg));
         })
         .finally(() => {
@@ -201,6 +216,11 @@ export function useEditorFileManager({
           if (current.loadingFileId === node.id) {
             current.setLoadingFileId(null);
           }
+
+          logEditorFlow("file-manager", "github-load:done", {
+            fileId: node.id,
+            aborted: !!signal?.aborted,
+          });
         });
     },
     [setTreeLocal],
@@ -214,10 +234,18 @@ export function useEditorFileManager({
       pendingLoadFileIdRef.current = null;
       setPendingLoadFileId(null);
 
+      logEditorFlow("file-manager", "github-load:dispatch", {
+        fileId: node.id,
+        repoReady: true,
+      });
+
       const tabs = useEditorTabsStore.getState();
       const existingController = inFlightLoadControllersRef.current.get(node.id);
 
       if (existingController) {
+        logEditorFlow("file-manager", "github-load:reuse-inflight", {
+          fileId: node.id,
+        });
         tabs.setLoadingFileId(node.id);
         return;
       }
@@ -240,11 +268,24 @@ export function useEditorFileManager({
 
       logActivity("select-file", node.id, node.name);
 
+      logEditorFlow("file-manager", "select-file", {
+        fileId: node.id,
+        hasGithubPath: !!node.githubPath,
+        hasContent: node.content !== undefined,
+        hasGithubRepo: !!githubRepo,
+        importedProjectReady: isImportedProjectReady,
+      });
+
       if (node.githubPath && node.content === undefined) {
         if (!githubRepo || !isImportedProjectReady) {
           pendingLoadFileIdRef.current = node.id;
           setPendingLoadFileId(node.id);
           tabs.setLoadingFileId(node.id);
+          logEditorFlow("file-manager", "select-file:queued-pending-repo", {
+            fileId: node.id,
+            hasGithubRepo: !!githubRepo,
+            importedProjectReady: isImportedProjectReady,
+          });
           return;
         }
 
@@ -266,6 +307,12 @@ export function useEditorFileManager({
 
     const pendingNode = nodeMapRef.current.get(pendingId);
     if (!pendingNode || !pendingNode.githubPath || pendingNode.content !== undefined) {
+      logEditorFlow("file-manager", "pending-load:cleared", {
+        fileId: pendingId,
+        hasNode: !!pendingNode,
+        hasGithubPath: !!pendingNode?.githubPath,
+        hasContent: pendingNode?.content !== undefined,
+      });
       pendingLoadFileIdRef.current = null;
       setPendingLoadFileId((current) => (current === pendingId ? null : current));
 
@@ -276,6 +323,10 @@ export function useEditorFileManager({
       return;
     }
 
+    logEditorFlow("file-manager", "pending-load:resume", {
+      fileId: pendingId,
+      repo: `${githubRepo.owner}/${githubRepo.repo}@${githubRepo.branch}`,
+    });
     startGitHubFileLoad(pendingNode, githubRepo);
   }, [githubRepo, isImportedProjectReady, nodeMap, startGitHubFileLoad]);
 

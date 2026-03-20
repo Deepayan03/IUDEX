@@ -3,6 +3,7 @@
 import { useEffect, useCallback, useMemo } from "react";
 
 import type { FileNode } from "@/features/editor/lib/types";
+import { logEditorFlow } from "@/features/editor/lib/debug";
 import {
   toggleFolder,
 } from "@/features/editor/lib/utils";
@@ -154,6 +155,29 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
     userInfo: userInfo ?? null,
     initialContent: activeFile?.content,
   });
+
+  useEffect(() => {
+    if (!activeFileId) return;
+
+    logEditorFlow("editor-layout", "active-file:state", {
+      activeFileId,
+      fileName: activeFile?.name ?? null,
+      hasContent: activeFile?.content !== undefined,
+      contentLength: activeFile?.content?.length ?? 0,
+      hasGithubPath: !!activeFile?.githubPath,
+      sourceState: activeFileSourceState,
+      fileRoomId,
+      isDocumentReady,
+    });
+  }, [
+    activeFileId,
+    activeFile?.content,
+    activeFile?.githubPath,
+    activeFile?.name,
+    activeFileSourceState,
+    fileRoomId,
+    isDocumentReady,
+  ]);
 
   const {
     approvalModalData,

@@ -69,23 +69,56 @@ export function useActivityLog({
   } | null>(null)
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const latestTimestampRef = useRef<number>(0)
+  const activityLogDisabledRef = useRef(false)
+
+  const disableActivityLog = useCallback((message: string) => {
+    if (activityLogDisabledRef.current) return
+    activityLogDisabledRef.current = true
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current)
+      pollTimerRef.current = null
+    }
+    console.warn("[activity-log]", message)
+  }, [])
+
+  const getResponseError = useCallback(async (res: Response) => {
+    try {
+      const data = await res.json()
+      if (typeof data?.error === "string" && data.error.trim()) {
+        return data.error
+      }
+    } catch {
+      // Ignore JSON parse failures and fall back to status text.
+    }
+
+    return res.statusText || `Request failed (${res.status})`
+  }, [])
 
   // ── Flush pending entries to server ─────────────────────────────────
   const flushToServer = useCallback(async () => {
+    if (activityLogDisabledRef.current) return
     const batch = pendingRef.current.splice(0)
     if (batch.length === 0) return
     try {
-      await fetch("/api/activity-log", {
+      const res = await fetch("/api/activity-log", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ entries: batch }),
       })
+      if (!res.ok) {
+        const message = await getResponseError(res)
+        if (res.status === 503) {
+          disableActivityLog(message)
+          return
+        }
+        throw new Error(message)
+      }
     } catch (err) {
       console.error("[activity-log] Failed to flush:", err)
       // Put them back for retry
       pendingRef.current.unshift(...batch)
     }
-  }, [])
+  }, [disableActivityLog, getResponseError])
 
   const scheduleFlush = useCallback(() => {
     if (flushTimerRef.current) return
@@ -96,6 +129,7 @@ export function useActivityLog({
   }, [flushToServer])
 
   const flushPendingOnExit = useCallback(() => {
+    if (activityLogDisabledRef.current) return
     const batch = pendingRef.current.splice(0)
     if (batch.length === 0) return
 
@@ -123,15 +157,28 @@ export function useActivityLog({
   // ── Fetch initial entries ───────────────────────────────────────────
   useEffect(() => {
     if (!roomId) {
+      activityLogDisabledRef.current = false
       store.getState().clear()
       return
     }
 
+    activityLogDisabledRef.current = false
     let cancelled = false
     store.getState().setLoading(true)
 
     fetch(`/api/activity-log?roomId=${encodeURIComponent(roomId)}&limit=50`)
-      .then((res) => res.json())
+      .then(async (res) => {
+        if (!res.ok) {
+          const message = await getResponseError(res)
+          if (res.status === 503) {
+            disableActivityLog(message)
+            return { entries: [] }
+          }
+          throw new Error(message)
+        }
+
+        return res.json()
+      })
       .then((data) => {
         if (cancelled) return
         const entries: ActivityLogEntry[] = data.entries ?? []
@@ -149,7 +196,7 @@ export function useActivityLog({
     return () => {
       cancelled = true
     }
-  }, [roomId, store])
+  }, [roomId, store, disableActivityLog, getResponseError])
 
   // ── Poll for new entries ────────────────────────────────────────────
   // Track IDs of entries we created locally so the poll skips them
@@ -159,11 +206,21 @@ export function useActivityLog({
     if (!roomId) return
 
     pollTimerRef.current = setInterval(async () => {
+      if (activityLogDisabledRef.current) return
+
       try {
         const after = latestTimestampRef.current
         const res = await fetch(
           `/api/activity-log?roomId=${encodeURIComponent(roomId)}&limit=20&after=${after}`
         )
+        if (!res.ok) {
+          const message = await getResponseError(res)
+          if (res.status === 503) {
+            disableActivityLog(message)
+            return
+          }
+          throw new Error(message)
+        }
         const data = await res.json()
         const entries: ActivityLogEntry[] = data.entries ?? []
         // Filter out entries we created locally to avoid feedback loop
@@ -186,7 +243,7 @@ export function useActivityLog({
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current)
     }
-  }, [roomId, store])
+  }, [roomId, store, disableActivityLog, getResponseError])
 
   // ── Cleanup on unmount ──────────────────────────────────────────────
   useEffect(() => {
@@ -337,7 +394,7 @@ export function useActivityLog({
 
   // ── Load more (pagination) ─────────────────────────────────────────
   const loadMore = useCallback(async () => {
-    if (!roomId) return
+    if (!roomId || activityLogDisabledRef.current) return
     const entries = store.getState().entries
     if (entries.length === 0) return
 
@@ -348,6 +405,14 @@ export function useActivityLog({
       const res = await fetch(
         `/api/activity-log?roomId=${encodeURIComponent(roomId)}&limit=50&before=${oldest.timestamp}`
       )
+      if (!res.ok) {
+        const message = await getResponseError(res)
+        if (res.status === 503) {
+          disableActivityLog(message)
+          return
+        }
+        throw new Error(message)
+      }
       const data = await res.json()
       const older: ActivityLogEntry[] = data.entries ?? []
       store.getState().appendOlderEntries(older)
@@ -357,7 +422,7 @@ export function useActivityLog({
     } finally {
       store.getState().setLoading(false)
     }
-  }, [roomId, store])
+  }, [roomId, store, disableActivityLog, getResponseError])
 
   // ── Undo a structural entry ────────────────────────────────────────
   const undoEntry = useCallback(
@@ -394,16 +459,26 @@ export function useActivityLog({
       // Mark as undone locally and on server
       store.getState().markUndone(entryId)
       try {
-        await fetch("/api/activity-log/undo", {
+        if (activityLogDisabledRef.current) return
+
+        const res = await fetch("/api/activity-log/undo", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ entryId }),
         })
+        if (!res.ok) {
+          const message = await getResponseError(res)
+          if (res.status === 503) {
+            disableActivityLog(message)
+            return
+          }
+          throw new Error(message)
+        }
       } catch (err) {
         console.error("[activity-log] Undo persist error:", err)
       }
     },
-    [syncTree, store]
+    [syncTree, store, disableActivityLog, getResponseError]
   )
 
   return { logActivity, undoEntry, loadMore }

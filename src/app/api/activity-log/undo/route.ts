@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseClient } from "@/shared/supabase/client"
 
+function activityLogErrorResponse(err: unknown) {
+  const message = err instanceof Error ? err.message : "Unknown error"
+
+  if (message.includes("Missing SUPABASE_URL or SUPABASE_SERVICE_KEY")) {
+    return NextResponse.json(
+      { error: "Activity log backend is not configured" },
+      { status: 503 }
+    )
+  }
+
+  return NextResponse.json({ error: "Internal error" }, { status: 500 })
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -25,6 +38,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error("[activity-log] Error:", err)
-    return NextResponse.json({ error: "Internal error" }, { status: 500 })
+    return activityLogErrorResponse(err)
   }
 }
