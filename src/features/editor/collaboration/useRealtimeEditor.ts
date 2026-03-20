@@ -197,6 +197,7 @@ export function useRealtimeEditor({
     provider.on("sync", syncHandler);
     providerSyncedRef.current = provider.synced;
     if (provider.synced) {
+      setSyncedRoomId(roomId);
       maybeSeedInitialContent();
     }
 
