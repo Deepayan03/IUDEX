@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import type { MonacoBinding } from "y-monaco";
@@ -42,8 +42,6 @@ interface UseRealtimeEditorOptions {
 interface UseRealtimeEditorReturn {
   /** Bind a Monaco editor instance to the CRDT document. Call on editor mount. */
   bindEditor: (editor: Monaco.editor.IStandaloneCodeEditor) => void;
-  /** True once the currently selected file-room has completed its first sync. */
-  isDocumentReady: boolean;
 }
 
 export function useRealtimeEditor({
@@ -58,7 +56,6 @@ export function useRealtimeEditor({
   const disposedRef = useRef(false);
   const providerSyncedRef = useRef(false);
   const bindingRequestRef = useRef(0);
-  const [syncedRoomId, setSyncedRoomId] = useState<string | null>(null);
   const userId = userInfo?.userId ?? null;
   const username = userInfo?.username ?? null;
 
@@ -158,7 +155,6 @@ export function useRealtimeEditor({
   // Setup connection when roomId changes
   useEffect(() => {
     if (!roomId || !userId || !username) {
-      setSyncedRoomId(null);
       cleanup();
       return;
     }
@@ -166,7 +162,6 @@ export function useRealtimeEditor({
     // Clean up previous connection
     cleanup();
     disposedRef.current = false;
-    setSyncedRoomId(null);
 
     const wsUrl =
       process.env.NEXT_PUBLIC_WS_URL ??
@@ -190,14 +185,12 @@ export function useRealtimeEditor({
       if (disposedRef.current || providerRef.current !== provider) return;
       providerSyncedRef.current = isSynced;
       if (isSynced) {
-        setSyncedRoomId(roomId);
         maybeSeedInitialContent();
       }
     };
     provider.on("sync", syncHandler);
     providerSyncedRef.current = provider.synced;
     if (provider.synced) {
-      setSyncedRoomId(roomId);
       maybeSeedInitialContent();
     }
 
@@ -245,6 +238,5 @@ export function useRealtimeEditor({
 
   return {
     bindEditor,
-    isDocumentReady: roomId === null || syncedRoomId === roomId,
   };
 }

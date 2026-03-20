@@ -1,12 +1,14 @@
 "use client"
 
 import { useState, useCallback } from "react"
+import type { FileNode } from "@/features/editor/lib/types"
 import { getLanguage } from "@/features/editor/lib/utils"
 import { useEditorTabsStore }    from "@/shared/state/editorTabs"
 import { useLayoutStore }        from "@/shared/state/layout"
 import { useCollaborationStore } from "@/shared/state/collaboration"
 
 interface StatusBarProps {
+  activeFile?:     FileNode | null
   zoom?:          number
   isRoomCreator?: boolean
   roomId?:        string
@@ -14,12 +16,12 @@ interface StatusBarProps {
 }
 
 export default function StatusBar({
+  activeFile = null,
   zoom          = 1,
   isRoomCreator,
   roomId,
   onAction,
 }: StatusBarProps) {
-  const activeFile      = useEditorTabsStore(s => s.activeFile)
   const cursorLine      = useEditorTabsStore(s => s.cursorLine)
   const cursorCol       = useEditorTabsStore(s => s.cursorCol)
   const unsavedCount    = useEditorTabsStore(s => s.unsavedIds).size

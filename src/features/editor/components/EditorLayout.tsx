@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useCallback, useMemo, useState } from "react"
+import { useEffect, useCallback, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 
 import type { FileNode } from "@/features/editor/lib/types"
@@ -51,8 +51,8 @@ type EditorOverlay = "command-palette" | "quick-open" | "open-recent" | null
 
 export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
   // ── Store reads ─────────────────────────────────────────────────────────
-  const activeFile      = useEditorTabsStore(s => s.activeFile)
-  const openTabs        = useEditorTabsStore(s => s.openTabs)
+  const activeFileId    = useEditorTabsStore(s => s.activeFileId)
+  const openTabIds      = useEditorTabsStore(s => s.openTabIds)
   const unsavedIds      = useEditorTabsStore(s => s.unsavedIds)
   const inlineCreate    = useEditorTabsStore(s => s.inlineCreate)
   const loadingFileId   = useEditorTabsStore(s => s.loadingFileId)
@@ -77,6 +77,7 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
   const { zoom, zoomIn, zoomOut, zoomReset } = useZoom()
   const { setEditor, getValue, actions: editorActions } = useEditorActions()
   const tabHistory = useTabHistory()
+  const nodeMapRef = useRef<Map<string, FileNode>>(new Map())
 
   // ── CRDT Collaboration ────────────────────────────────────────────────
   const crdtEnabled = !!roomId && !!userInfo
@@ -100,27 +101,62 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
     roomId: crdtEnabled ? roomId! : null,
     userInfo: userInfo ?? null,
     initialTree: INITIAL_TREE,
-    activeFile: activeFile ? { id: activeFile.id, name: activeFile.name } : null,
-    cursorPosition: activeFile
+    activeFile: activeFileId
+      ? { id: activeFileId, name: activeFileId.split("/").pop() ?? activeFileId }
+      : null,
+    cursorPosition: activeFileId
       ? { lineNumber: cursorLine, column: cursorCol }
       : null,
   })
 
-  // Per-file content CRDT
-  const fileRoomId = useMemo(
-    () => (crdtEnabled && activeFile ? `${roomId}:${activeFile.id}` : null),
-    [crdtEnabled, roomId, activeFile]
+  const nodeMap = useMemo(() => {
+    const map = new Map<string, FileNode>()
+    const collect = (nodes: FileNode[]) => {
+      for (const node of nodes) {
+        map.set(node.id, node)
+        if (node.children) collect(node.children)
+      }
+    }
+    collect(tree)
+    return map
+  }, [tree])
+
+  useEffect(() => {
+    nodeMapRef.current = nodeMap
+  }, [nodeMap])
+
+  const activeFile = activeFileId ? nodeMap.get(activeFileId) ?? null : null
+
+  const openTabs = useMemo(
+    () =>
+      openTabIds.filter((id) => nodeMap.has(id)).map((id) => nodeMap.get(id) as FileNode),
+    [nodeMap, openTabIds]
   )
 
-  const { bindEditor, isDocumentReady } = useRealtimeEditor({
+  useEffect(() => {
+    const tabs = useEditorTabsStore.getState()
+    const validOpenTabIds = tabs.openTabIds.filter((id) => nodeMap.has(id))
+
+    if (validOpenTabIds.length !== tabs.openTabIds.length) {
+      tabs.setOpenTabIds(validOpenTabIds)
+    }
+
+    if (tabs.activeFileId && !nodeMap.has(tabs.activeFileId)) {
+      tabs.setActiveFileId(validOpenTabIds[validOpenTabIds.length - 1] ?? null)
+    }
+  }, [nodeMap])
+
+  // Per-file content CRDT
+  const fileRoomId = useMemo(
+    () => (crdtEnabled && activeFileId ? `${roomId}:${activeFileId}` : null),
+    [activeFileId, crdtEnabled, roomId]
+  )
+
+  const { bindEditor } = useRealtimeEditor({
     roomId: fileRoomId,
     userInfo: userInfo ?? null,
     initialContent: activeFile?.content,
   })
-
-  const effectiveLoadingFileId =
-    loadingFileId ??
-    (crdtEnabled && activeFile && !isDocumentReady ? activeFile.id : null)
 
   // ── Activity Log ────────────────────────────────────────────────────────
   const { logActivity, undoEntry, loadMore: loadMoreActivities } = useActivityLog({
@@ -167,7 +203,8 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
 
     // Log edit activities
     editor.onDidChangeModelContent(e => {
-      const file = useEditorTabsStore.getState().activeFile
+      const fileId = useEditorTabsStore.getState().activeFileId
+      const file = fileId ? nodeMapRef.current.get(fileId) ?? null : null
       if (!file) return
       for (const change of e.changes) {
         logActivity(
@@ -186,17 +223,17 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
 
   // ── Content change → mark dirty ───────────────────────────────────────
   const handleContentChange = useCallback((value: string) => {
-    const file = useEditorTabsStore.getState().activeFile
-    if (!file) return
-    useEditorTabsStore.getState().markDirty(file.id)
-    setTreeLocal(t => updateContent(t, file.id, value))
+    const fileId = useEditorTabsStore.getState().activeFileId
+    if (!fileId) return
+    useEditorTabsStore.getState().markDirty(fileId)
+    setTreeLocal(t => updateContent(t, fileId, value))
   }, [setTreeLocal])
 
   // ── File selection ────────────────────────────────────────────────────
   const selectFile = useCallback((node: FileNode) => {
     const tabs = useEditorTabsStore.getState()
-    tabs.setActiveFile(node)
-    tabs.addTab(node)
+    tabs.setActiveFileId(node.id)
+    tabs.addTabId(node.id)
     tabHistory.push(node.id)
 
     // Log file selection
@@ -219,21 +256,10 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
         .then(data => {
           const content: string = data.content
           setTreeLocal(t => updateContent(t, node.id, content))
-          const current = useEditorTabsStore.getState()
-          if (current.activeFile?.id === node.id) {
-            current.setActiveFile({ ...current.activeFile, content })
-          }
-          current.setOpenTabs(prev =>
-            prev.map(t => t.id === node.id ? { ...t, content } : t)
-          )
         })
         .catch(err => {
           const errorMsg = `// Error loading file: ${(err as Error).message}\n// Path: ${node.githubPath}`
           setTreeLocal(t => updateContent(t, node.id, errorMsg))
-          const current = useEditorTabsStore.getState()
-          if (current.activeFile?.id === node.id) {
-            current.setActiveFile({ ...current.activeFile, content: errorMsg })
-          }
         })
         .finally(() => {
           const current = useEditorTabsStore.getState()
@@ -315,7 +341,7 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
   // ── Save file ─────────────────────────────────────────────────────────
   const saveFile = useCallback((fileId?: string) => {
     const tabs = useEditorTabsStore.getState()
-    const id = fileId ?? tabs.activeFile?.id
+    const id = fileId ?? tabs.activeFileId
     if (!id) return
     const { formatOnSave } = usePreferencesStore.getState().prefs
     if (formatOnSave) editorActions.formatDoc()
@@ -330,18 +356,17 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
 
   // ── Save As (download) ────────────────────────────────────────────────
   const saveAs = useCallback(() => {
-    const file = useEditorTabsStore.getState().activeFile
-    if (!file) return
+    if (!activeFile) return
     const content = getValue()
     const blob = new Blob([content], { type: "text/plain" })
     const url  = URL.createObjectURL(blob)
     const a    = document.createElement("a")
     a.href     = url
-    a.download = file.name
+    a.download = activeFile.name
     a.click()
     URL.revokeObjectURL(url)
     saveFile()
-  }, [getValue, saveFile])
+  }, [activeFile, getValue, saveFile])
 
   // ── GitHub import wrapper (close modal + delegate) ────────────────────
   const handleGitHubImport = useCallback((
@@ -378,7 +403,7 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
       case "save":              saveFile();      break
       case "save-all":          saveAll();       break
       case "save-as":           saveAs();        break
-      case "close-editor":      if (tabs.activeFile) closeTab(tabs.activeFile.id); break
+      case "close-editor":      if (tabs.activeFileId) closeTab(tabs.activeFileId); break
       case "close-all-editors": tabs.closeAllTabs(); break
       case "preferences":       usePreferencesStore.getState().openPrefs(); break
       case "open-recent":       setOverlay("open-recent"); break
@@ -409,8 +434,8 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
       case "zoom-reset":        zoomReset(); break
 
       // ── Go ────────────────────────────────────────────────────────────
-      case "go-back":           tabHistory.back(tabs.openTabs, node => { tabs.setActiveFile(node) }); break
-      case "go-forward":        tabHistory.forward(tabs.openTabs, node => { tabs.setActiveFile(node) }); break
+      case "go-back":           tabHistory.back(tabs.openTabIds, tabs.setActiveFileId); break
+      case "go-forward":        tabHistory.forward(tabs.openTabIds, tabs.setActiveFileId); break
       case "go-to-file":        setOverlay("quick-open");      break
       case "go-to-line":        editorActions.goToLine();      break
       case "go-to-symbol":      editorActions.goToSymbol();    break
@@ -433,16 +458,15 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
       case "split-terminal":    layout.setTerminalVisible(true);  break
       case "kill-terminal":     layout.setTerminalVisible(false); break
       case "run-active-file": {
-        const file = tabs.activeFile
-        const command = file ? getRunCommandForFile(file) : null
-        runInTerminal(command ?? `echo No runner configured for ${file?.name ?? "the current file"}`)
+        const command = activeFile ? getRunCommandForFile(activeFile) : null
+        runInTerminal(command ?? `echo No runner configured for ${activeFile?.name ?? "the current file"}`)
         break
       }
 
       // ── Misc ──────────────────────────────────────────────────────────
       case "notifications": break
     }
-  }, [closeTab, editorActions, runInTerminal, saveAll, saveAs, saveFile, tabHistory, tree, zoomIn, zoomOut, zoomReset])
+  }, [activeFile, closeTab, editorActions, runInTerminal, saveAll, saveAs, saveFile, tabHistory, tree, zoomIn, zoomOut, zoomReset])
 
   // ── Global keyboard shortcuts ─────────────────────────────────────────
   useGlobalShortcuts({ onAction: handleAction })
@@ -457,6 +481,8 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
     <div className="flex flex-col h-screen w-screen overflow-hidden ui-font" style={{ background: "#060c18", color: "#c8d6e5" }}>
 
       <TitleBar
+        activeFileName={activeFile?.name ?? null}
+        hasOpenTabs={openTabIds.length > 0}
         onAction={handleAction}
       />
 
@@ -518,7 +544,7 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
           prefs={prefs}
           terminalVisible={terminalVisible}
           terminalHeight={terminalHeight}
-          loadingFileId={effectiveLoadingFileId}
+          loadingFileId={loadingFileId}
           crdtMode={crdtEnabled}
           onAction={handleAction}
           onTabClick={selectFile}
@@ -530,6 +556,7 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
       </div>
 
       <StatusBar
+        activeFile={activeFile}
         zoom={zoom}
         isRoomCreator={crdtEnabled ? isCreator : undefined}
         roomId={roomId}

@@ -6,15 +6,15 @@ import { buildMenus, MENU_KEYS, ACTION_TOASTS }         from "./menuData"
 import MenuDropdown                                      from "./MenuDropdown"
 import Toast                                             from "./Toast"
 import IconBtn                                           from "./IconButton"
-import { useEditorTabsStore }                            from "@/shared/state/editorTabs"
 import { useLayoutStore }                                from "@/shared/state/layout"
 
 export type { TitleBarAction, TitleBarProps }
 
 export default function TitleBar({
+  activeFileName = null,
+  hasOpenTabs = false,
   onAction,
 }: TitleBarProps) {
-  const activeFileName = useEditorTabsStore(s => s.activeFile?.name ?? null)
   const sidebarVisible = useLayoutStore(s => s.sidebarVisible)
   const terminalVisible = useLayoutStore(s => s.terminalVisible)
   const isDebugging = useLayoutStore(s => s.isDebugging)
@@ -28,7 +28,7 @@ export default function TitleBar({
     terminalOpen:   terminalVisible,
     sidebarOpen:    sidebarVisible,
     hasActiveFile:  !!activeFileName,
-    hasOpenTabs:    !!activeFileName,  // close enough; layout passes actual count
+    hasOpenTabs,
     canGoBack:      true,              // layout controls disabled via action result
     canGoForward:   true,
   })

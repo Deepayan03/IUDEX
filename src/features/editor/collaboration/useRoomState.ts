@@ -109,6 +109,7 @@ export function useRoomState({
   const disposedRef = useRef(false);
   const reconnectAttemptRef = useRef(0);
   const hasConnectedRef = useRef(false);
+  const hasHydratedRemoteTreeRef = useRef(false);
   const cursorBroadcastTimerRef = useRef<number | null>(null);
   const userId = userInfo?.userId ?? null;
   const username = userInfo?.username ?? null;
@@ -150,6 +151,7 @@ export function useRoomState({
   // ── Cleanup ──────────────────────────────────────────────────────────
   const cleanup = useCallback(() => {
     disposedRef.current = true;
+    hasHydratedRemoteTreeRef.current = false;
     if (providerRef.current) {
       providerRef.current.disconnect();
       providerRef.current.destroy();
@@ -179,6 +181,14 @@ export function useRoomState({
     if (!ydoc) return;
     const ymap = ydoc.getMap("room");
     ymap.set("githubRepo", meta ? JSON.stringify(meta) : "");
+  }, []);
+
+  const stripTreeContent = useCallback((nodes: FileNode[]): FileNode[] => {
+    return nodes.map((node) => ({
+      ...node,
+      content: undefined,
+      children: node.children ? stripTreeContent(node.children) : undefined,
+    }));
   }, []);
 
   // ── Public API ──────────────────────────────────────────────────────
@@ -278,7 +288,13 @@ export function useRoomState({
       if (rawTree) {
         try {
           const remote: FileNode[] = JSON.parse(rawTree);
-          setTree((prev) => mergeRemoteTree(remote, prev));
+          setTree((prev) =>
+            mergeRemoteTree(
+              remote,
+              hasHydratedRemoteTreeRef.current ? prev : stripTreeContent(prev)
+            )
+          );
+          hasHydratedRemoteTreeRef.current = true;
         } catch {
           /* ignore malformed JSON */
         }
@@ -380,6 +396,7 @@ export function useRoomState({
         const stripped = stripLocalFields(treeRef.current);
         ymap.set("tree", JSON.stringify(stripped));
         ymap.set("creator", userId);
+        hasHydratedRemoteTreeRef.current = true;
       } else {
         ymapObserver();
       }
@@ -464,6 +481,7 @@ export function useRoomState({
     userId,
     username,
     cleanup,
+    stripTreeContent,
     setCollaborators,
     updateConnection,
     resetConnection,

@@ -1,10 +1,10 @@
 import { create } from "zustand"
-import type { FileNode, InlineCreate } from "@/features/editor/lib/types"
+import type { InlineCreate } from "@/features/editor/lib/types"
 
 interface EditorTabsState {
   // State
-  activeFile: FileNode | null
-  openTabs: FileNode[]
+  activeFileId: string | null
+  openTabIds: string[]
   unsavedIds: Set<string>
   inlineCreate: InlineCreate
   loadingFileId: string | null
@@ -12,9 +12,9 @@ interface EditorTabsState {
   cursorCol: number
 
   // Actions
-  setActiveFile: (file: FileNode | null) => void
-  setOpenTabs: (tabs: FileNode[] | ((prev: FileNode[]) => FileNode[])) => void
-  addTab: (file: FileNode) => void
+  setActiveFileId: (id: string | null) => void
+  setOpenTabIds: (ids: string[] | ((prev: string[]) => string[])) => void
+  addTabId: (id: string) => void
   removeTab: (id: string) => void
   closeAllTabs: () => void
   markDirty: (id: string) => void
@@ -26,41 +26,41 @@ interface EditorTabsState {
 }
 
 export const useEditorTabsStore = create<EditorTabsState>((set) => ({
-  activeFile: null,
-  openTabs: [],
+  activeFileId: null,
+  openTabIds: [],
   unsavedIds: new Set(),
   inlineCreate: null,
   loadingFileId: null,
   cursorLine: 1,
   cursorCol: 1,
 
-  setActiveFile: (file) => set({ activeFile: file }),
-  setOpenTabs: (tabs) =>
+  setActiveFileId: (id) => set({ activeFileId: id }),
+  setOpenTabIds: (ids) =>
     set((s) => ({
-      openTabs: typeof tabs === "function" ? tabs(s.openTabs) : tabs,
+      openTabIds: typeof ids === "function" ? ids(s.openTabIds) : ids,
     })),
-  addTab: (file) =>
+  addTabId: (id) =>
     set((s) => ({
-      openTabs: s.openTabs.find((t) => t.id === file.id)
-        ? s.openTabs
-        : [...s.openTabs, file],
+      openTabIds: s.openTabIds.includes(id)
+        ? s.openTabIds
+        : [...s.openTabIds, id],
     })),
   removeTab: (id) =>
     set((s) => {
-      const next = s.openTabs.filter((t) => t.id !== id)
+      const next = s.openTabIds.filter((tabId) => tabId !== id)
       const unsaved = new Set(s.unsavedIds)
       unsaved.delete(id)
       return {
-        openTabs: next,
+        openTabIds: next,
         unsavedIds: unsaved,
-        activeFile:
-          s.activeFile?.id === id
+        activeFileId:
+          s.activeFileId === id
             ? next[next.length - 1] ?? null
-            : s.activeFile,
+            : s.activeFileId,
       }
     }),
   closeAllTabs: () =>
-    set({ openTabs: [], activeFile: null, unsavedIds: new Set() }),
+    set({ openTabIds: [], activeFileId: null, unsavedIds: new Set() }),
   markDirty: (id) =>
     set((s) => {
       const next = new Set(s.unsavedIds)

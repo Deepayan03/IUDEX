@@ -84,5 +84,7 @@ export type OpenMenu = { key: string; top: number; left: number } | null
 
 // ── TitleBar props ─────────────────────────────────────────────────────────
 export interface TitleBarProps {
+  activeFileName?: string | null
+  hasOpenTabs?: boolean
   onAction: (action: TitleBarAction) => void
 }

@@ -1,7 +1,6 @@
 "use client"
 
 import { useRef, useCallback, useState } from "react"
-import type { FileNode } from "@/features/editor/lib/types"
 
 // Keeps a history stack of visited file IDs so go-back/forward works
 // exactly like VS Code's editor navigation history.
@@ -22,27 +21,25 @@ export function useTabHistory() {
   }, [])
 
   const back = useCallback((
-    tabs: FileNode[],
-    onSelect: (node: FileNode) => void
+    openTabIds: string[],
+    onSelect: (fileId: string) => void
   ) => {
     if (pointer.current <= 0) return
     pointer.current -= 1
     rerender()
-    const id   = stack.current[pointer.current]
-    const node = tabs.find(t => t.id === id)
-    if (node) onSelect(node)
+    const id = stack.current[pointer.current]
+    if (openTabIds.includes(id)) onSelect(id)
   }, [])
 
   const forward = useCallback((
-    tabs: FileNode[],
-    onSelect: (node: FileNode) => void
+    openTabIds: string[],
+    onSelect: (fileId: string) => void
   ) => {
     if (pointer.current >= stack.current.length - 1) return
     pointer.current += 1
     rerender()
-    const id   = stack.current[pointer.current]
-    const node = tabs.find(t => t.id === id)
-    if (node) onSelect(node)
+    const id = stack.current[pointer.current]
+    if (openTabIds.includes(id)) onSelect(id)
   }, [])
 
   const removeId = useCallback((fileId: string) => {
