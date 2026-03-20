@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import type { MonacoBinding } from "y-monaco";
@@ -42,6 +42,15 @@ interface UseRealtimeEditorOptions {
 interface UseRealtimeEditorReturn {
   /** Bind a Monaco editor instance to the CRDT document. Call on editor mount. */
   bindEditor: (editor: Monaco.editor.IStandaloneCodeEditor) => void;
+  /** True once the file room has synced at least once and Monaco is bound. */
+  isDocumentReady: boolean;
+}
+
+let monacoBindingModulePromise: Promise<typeof import("y-monaco")> | null = null;
+
+function loadMonacoBinding() {
+  monacoBindingModulePromise ??= import("y-monaco");
+  return monacoBindingModulePromise;
 }
 
 export function useRealtimeEditor({
@@ -49,12 +58,14 @@ export function useRealtimeEditor({
   userInfo,
   initialContent,
 }: UseRealtimeEditorOptions): UseRealtimeEditorReturn {
+  const [readyRoomId, setReadyRoomId] = useState<string | null>(null);
   const providerRef = useRef<WebsocketProvider | null>(null);
   const ydocRef = useRef<Y.Doc | null>(null);
   const bindingRef = useRef<MonacoBinding | null>(null);
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const disposedRef = useRef(false);
   const providerSyncedRef = useRef(false);
+  const initialSyncCompleteRef = useRef(false);
   const bindingRequestRef = useRef(0);
   const userId = userInfo?.userId ?? null;
   const username = userInfo?.username ?? null;
@@ -64,10 +75,17 @@ export function useRealtimeEditor({
   const initialContentRef = useRef<string | undefined>(initialContent);
   initialContentRef.current = initialContent;
 
+  const markDocumentReady = useCallback(() => {
+    if (!roomId || disposedRef.current) return;
+    if (!bindingRef.current || !initialSyncCompleteRef.current) return;
+    setReadyRoomId(roomId);
+  }, [roomId]);
+
   // Clean up current connection
   const cleanup = useCallback(() => {
     disposedRef.current = true;
     providerSyncedRef.current = false;
+    initialSyncCompleteRef.current = false;
     bindingRequestRef.current += 1;
     if (bindingRef.current) {
       bindingRef.current.destroy();
@@ -122,8 +140,7 @@ export function useRealtimeEditor({
     const requestId = ++bindingRequestRef.current;
     maybeSeedInitialContent();
 
-    // Dynamically import y-monaco to avoid SSR issues (it imports monaco-editor which requires window)
-    const { MonacoBinding } = await import("y-monaco");
+    const { MonacoBinding } = await loadMonacoBinding();
 
     // Guard: if cleanup or a newer bind request ran while the import was in-flight,
     // don't attach a stale binding to the editor.
@@ -143,6 +160,7 @@ export function useRealtimeEditor({
       new Set([editor]),
       provider.awareness
     );
+    markDocumentReady();
 
     // y-monaco auto-destroys itself via model.onWillDispose when the Monaco editor
     // unmounts. Null out our ref so cleanup() doesn't call destroy() a second time
@@ -150,11 +168,12 @@ export function useRealtimeEditor({
     model.onWillDispose(() => {
       bindingRef.current = null;
     });
-  }, [maybeSeedInitialContent]);
+  }, [markDocumentReady, maybeSeedInitialContent]);
 
   // Setup connection when roomId changes
   useEffect(() => {
     if (!roomId || !userId || !username) {
+      setReadyRoomId(null);
       cleanup();
       return;
     }
@@ -162,6 +181,8 @@ export function useRealtimeEditor({
     // Clean up previous connection
     cleanup();
     disposedRef.current = false;
+    setReadyRoomId(null);
+    void loadMonacoBinding();
 
     const wsUrl =
       process.env.NEXT_PUBLIC_WS_URL ??
@@ -185,13 +206,17 @@ export function useRealtimeEditor({
       if (disposedRef.current || providerRef.current !== provider) return;
       providerSyncedRef.current = isSynced;
       if (isSynced) {
+        initialSyncCompleteRef.current = true;
         maybeSeedInitialContent();
+        markDocumentReady();
       }
     };
     provider.on("sync", syncHandler);
     providerSyncedRef.current = provider.synced;
     if (provider.synced) {
+      initialSyncCompleteRef.current = true;
       maybeSeedInitialContent();
+      markDocumentReady();
     }
 
     // Set local awareness state (used by y-monaco for remote cursor display)
@@ -218,6 +243,7 @@ export function useRealtimeEditor({
     username,
     cleanup,
     createBinding,
+    markDocumentReady,
     maybeSeedInitialContent,
   ]);
 
@@ -238,5 +264,6 @@ export function useRealtimeEditor({
 
   return {
     bindEditor,
+    isDocumentReady: !!roomId && readyRoomId === roomId,
   };
 }

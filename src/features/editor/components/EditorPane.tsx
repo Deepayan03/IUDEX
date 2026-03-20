@@ -16,6 +16,7 @@ interface EditorPaneProps {
   terminalHeight:      number
   loadingFileId?:      string | null
   crdtMode?:           boolean
+  crdtPending?:        boolean
   onAction?:           (action: TitleBarAction) => void
   onTabClick:          (tab: FileNode) => void
   onTabClose:          (id: string, e: React.MouseEvent) => void
@@ -27,7 +28,7 @@ interface EditorPaneProps {
 export default function EditorPane({
   activeFile, openTabs, unsavedIds, breadcrumb,
   prefs, terminalVisible, terminalHeight,
-  loadingFileId, crdtMode, onAction,
+  loadingFileId, crdtMode, crdtPending, onAction,
   onTabClick, onTabClose,
   onEditorMount, onContentChange, onTerminalResizeStart,
 }: EditorPaneProps) {
@@ -122,15 +123,35 @@ export default function EditorPane({
               <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
             </div>
           ) : (
-            <div key={activeFile.id} className="w-full h-full animate-fadeIn">
-              <CodeEditor
-                language={getLanguage(activeFile.name)}
-                defaultValue={activeFile.content ?? `// ${activeFile.name}`}
-                prefs={prefs}
-                crdtMode={crdtMode}
-                onMount={onEditorMount}
-                onChange={onContentChange}
-              />
+            <div key={activeFile.id} className="w-full h-full animate-fadeIn relative">
+              <div
+                className="w-full h-full"
+                style={{ visibility: crdtPending ? "hidden" : "visible" }}
+              >
+                <CodeEditor
+                  language={getLanguage(activeFile.name)}
+                  defaultValue={activeFile.content ?? `// ${activeFile.name}`}
+                  prefs={prefs}
+                  crdtMode={crdtMode}
+                  onMount={onEditorMount}
+                  onChange={onContentChange}
+                />
+              </div>
+
+              {crdtPending && (
+                <div
+                  className="absolute inset-0 flex flex-col items-center justify-center gap-3 animate-fadeIn"
+                  style={{ color: "#3a5080", background: "#060c18" }}
+                >
+                  <div style={{
+                    width: 20, height: 20, border: "2px solid #3d5afe",
+                    borderTopColor: "transparent", borderRadius: "50%",
+                    animation: "spin 0.6s linear infinite",
+                  }} />
+                  <span style={{ fontSize: 12 }}>Opening {activeFile.name}...</span>
+                  <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+                </div>
+              )}
             </div>
           )
         ) : (

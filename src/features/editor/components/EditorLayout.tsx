@@ -152,7 +152,7 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
     [activeFileId, crdtEnabled, roomId]
   )
 
-  const { bindEditor } = useRealtimeEditor({
+  const { bindEditor, isDocumentReady } = useRealtimeEditor({
     roomId: fileRoomId,
     userInfo: userInfo ?? null,
     initialContent: activeFile?.content,
@@ -546,6 +546,7 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
           terminalHeight={terminalHeight}
           loadingFileId={loadingFileId}
           crdtMode={crdtEnabled}
+          crdtPending={crdtEnabled && !!activeFile && !isDocumentReady}
           onAction={handleAction}
           onTabClick={selectFile}
           onTabClose={(id, e) => closeTab(id, e)}
