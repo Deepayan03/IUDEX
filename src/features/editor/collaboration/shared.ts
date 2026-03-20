@@ -33,6 +33,10 @@ export function resolveRealtimeWsUrl(): string {
   );
 }
 
+export function buildFileRealtimeRoomId(roomId: string, fileId: string): string {
+  return `${roomId}:file:${encodeURIComponent(fileId)}`;
+}
+
 export function describeCloseReason(event: CloseEvent | null): string {
   if (event?.reason) return event.reason;
 

@@ -26,6 +26,7 @@ import EditorWorkbench from "@/features/editor/components/EditorWorkbench";
 import { useRealtimeEditor } from "@/features/editor/collaboration/useRealtimeEditor";
 import { useRoomState } from "@/features/editor/collaboration/useRoomState";
 import { useActivityLog } from "@/features/editor/activity-log/useActivityLog";
+import { buildFileRealtimeRoomId } from "@/features/editor/collaboration/shared";
 import { addRoomToHistory } from "@/shared/lib/roomHistory";
 import { useCollaborationStore } from "@/shared/state/collaboration";
 import { useEditorTabsStore } from "@/shared/state/editorTabs";
@@ -136,7 +137,10 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
       isImportedProjectReady);
 
   const fileRoomId = useMemo(
-    () => (shouldOpenRealtimeDoc && activeFileId ? `${roomId}:${activeFileId}` : null),
+    () =>
+      shouldOpenRealtimeDoc && activeFileId && roomId
+        ? buildFileRealtimeRoomId(roomId, activeFileId)
+        : null,
     [activeFileId, roomId, shouldOpenRealtimeDoc],
   );
 
