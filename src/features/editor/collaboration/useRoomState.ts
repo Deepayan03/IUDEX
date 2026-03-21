@@ -93,9 +93,16 @@ export function useRoomState({
 }: UseRoomStateOptions): UseRoomStateReturn {
   const initialTreeRef = useRef(initialTree);
 
-  const [tree, setTree] = useState<FileNode[]>(() =>
-    roomId ? [] : initialTree
-  );
+  // FIX A: Do NOT initialise tree to [] when roomId is present.
+  // The old code did `roomId ? [] : initialTree`, then wiped it again inside a
+  // queueMicrotask on every room change. That created a window where tree was
+  // empty while useRealtimeEditor was already running — causing initialContent
+  // to flip from the correct value to undefined before the WS synced.
+  // Instead, start with initialTree unconditionally and let the sync handler
+  // replace it once the server responds. This means the previous tree (or the
+  // local default) stays visible until the real remote tree arrives, which is
+  // always a better UX than a blank editor.
+  const [tree, setTree] = useState<FileNode[]>(initialTree);
   const [githubRepo, setGithubRepo] = useState<GithubMeta | null>(null);
   const [roomCreatorId, setRoomCreatorId] = useState<string | null>(null);
 
@@ -249,14 +256,17 @@ export function useRoomState({
 
     cleanup();
     disposedRef.current = false;
-    logEditorFlow("room-state", "connect:start", {
-      roomId,
-      userId,
-      wsUrl: resolveRealtimeWsUrl(),
-    });
-    queueMicrotask(() => {
-      resetRoomSnapshot([], null, null);
-    });
+
+    // FIX A (continued): Removed the queueMicrotask(() => resetRoomSnapshot([], null, null))
+    // that previously wiped the tree asynchronously here. That microtask fired
+    // after useRealtimeEditor had already captured the correct initialContent,
+    // nulling out initialContentRef before the WebSocket synced. Now we simply
+    // reset githubRepo and roomCreatorId synchronously (they have no content
+    // impact) and let the tree stay as-is until the sync handler populates it
+    // from the server.
+    setGithubRepo(null);
+    setRoomCreatorId(null);
+
     reconnectAttemptRef.current = 0;
     hasConnectedRef.current = false;
     updateConnection({
@@ -267,6 +277,11 @@ export function useRoomState({
     });
 
     const wsUrl = resolveRealtimeWsUrl();
+    logEditorFlow("room-state", "connect:start", {
+      roomId,
+      userId,
+      wsUrl,
+    });
 
     const metaRoomId = `${roomId}:__meta__`;
     const ydoc = new Y.Doc();
@@ -414,6 +429,8 @@ export function useRoomState({
       });
 
       if (!existingTree) {
+        // FIX A (continued): treeRef.current now holds the previous/initial tree
+        // (never []) so this seed path always has valid content to write.
         const baseTree = treeRef.current.length > 0 ? treeRef.current : initialTreeRef.current;
         const stripped = stripLocalFields(baseTree);
         setTree(baseTree);
