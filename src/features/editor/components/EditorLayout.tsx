@@ -75,9 +75,11 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
     setTreeLocal,
     syncTree,
     importProject,
+    roomConnectionStatus,
     isCreator,
     roomCreatorId,
     providerRef,
+    metaDocRef,
   } = useRoomState({
     roomId: crdtEnabled ? roomId! : null,
     userInfo: userInfo ?? null,
@@ -98,9 +100,11 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
     undoEntry,
     loadMore: loadMoreActivities,
   } = useActivityLog({
-    roomId: roomId ?? null,
+    roomId: crdtEnabled ? roomId! : null,
     userInfo: userInfo ?? null,
     syncTree,
+    metaDocRef,
+    roomConnectionStatus,
   });
 
   const {
@@ -244,7 +248,7 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
     (node: FileNode, lineNumber?: number) => {
       selectFile(node);
       if (lineNumber) {
-        window.setTimeout(() => {
+        setTimeout(() => {
           editorActions.revealLine(lineNumber);
         }, 60);
       }

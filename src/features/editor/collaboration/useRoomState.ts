@@ -69,6 +69,8 @@ interface UseRoomStateReturn {
   isCreator: boolean;
   /** Ref to the WebSocket provider (for awareness access). */
   providerRef: React.MutableRefObject<WebsocketProvider | null>;
+  /** Ref to the shared meta-room Y.Doc. */
+  metaDocRef: React.MutableRefObject<Y.Doc | null>;
 }
 
 function hasGitHubBackedFiles(nodes: FileNode[]): boolean {
@@ -112,7 +114,7 @@ export function useRoomState({
   const reconnectAttemptRef = useRef(0);
   const hasConnectedRef = useRef(false);
   const hasHydratedRemoteTreeRef = useRef(false);
-  const cursorBroadcastTimerRef = useRef<number | null>(null);
+  const cursorBroadcastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userId = userInfo?.userId ?? null;
   const username = userInfo?.username ?? null;
   const activeFileId = activeFile?.id ?? null;
@@ -194,7 +196,7 @@ export function useRoomState({
       ydocRef.current = null;
     }
     if (cursorBroadcastTimerRef.current !== null) {
-      window.clearTimeout(cursorBroadcastTimerRef.current);
+      clearTimeout(cursorBroadcastTimerRef.current);
       cursorBroadcastTimerRef.current = null;
     }
   }, []);
@@ -264,8 +266,7 @@ export function useRoomState({
     // reset githubRepo and roomCreatorId synchronously (they have no content
     // impact) and let the tree stay as-is until the sync handler populates it
     // from the server.
-    setGithubRepo(null);
-    setRoomCreatorId(null);
+    resetRoomSnapshot(treeRef.current, null, null);
 
     reconnectAttemptRef.current = 0;
     hasConnectedRef.current = false;
@@ -513,10 +514,10 @@ export function useRoomState({
     if (!provider) return;
 
     if (cursorBroadcastTimerRef.current !== null) {
-      window.clearTimeout(cursorBroadcastTimerRef.current);
+      clearTimeout(cursorBroadcastTimerRef.current);
     }
 
-    cursorBroadcastTimerRef.current = window.setTimeout(() => {
+    cursorBroadcastTimerRef.current = setTimeout(() => {
       provider.awareness.setLocalStateField(
         "cursor",
         activeFileId && cursorLine !== null && cursorColumn !== null
@@ -531,7 +532,7 @@ export function useRoomState({
 
     return () => {
       if (cursorBroadcastTimerRef.current !== null) {
-        window.clearTimeout(cursorBroadcastTimerRef.current);
+        clearTimeout(cursorBroadcastTimerRef.current);
         cursorBroadcastTimerRef.current = null;
       }
     };
@@ -548,5 +549,6 @@ export function useRoomState({
     roomCreatorId,
     isCreator: !!(userId && roomCreatorId === userId),
     providerRef,
+    metaDocRef: ydocRef,
   };
 }
