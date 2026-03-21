@@ -18,6 +18,10 @@ import type { CollaborationUserInfo } from "@/features/editor/collaboration/type
 
 // ── Hook ──────────────────────────────────────────────────────────────────
 
+// Pre-warm the dynamic import as soon as this client module loads so the first
+// binding attempt does not pay the network/parse cost on the critical path.
+const monacoBindingPromise = loadMonacoBinding();
+
 interface UseRealtimeEditorOptions {
   roomId: string | null;
   userInfo: CollaborationUserInfo | null;
@@ -44,7 +48,8 @@ export function useRealtimeEditor({
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const disposedRef = useRef(false);
   const providerSyncedRef = useRef(false);
-  const initialSyncCompleteRef = useRef(false);
+  const isSyncedRef = useRef(false);
+  const isBindingReadyRef = useRef(false);
   const bindingRequestRef = useRef(0);
   const userId = userInfo?.userId ?? null;
   const username = userInfo?.username ?? null;
@@ -63,16 +68,18 @@ export function useRealtimeEditor({
   }, [initialContent]);
 
   const markDocumentReady = useCallback(() => {
-    if (!roomId || disposedRef.current) return;
-    if (!bindingRef.current || !initialSyncCompleteRef.current) return;
-    setReadyRoomId(roomId);
-  }, [roomId]);
+    const activeRoomId = roomIdRef.current;
+    if (!activeRoomId || disposedRef.current) return;
+    if (!isSyncedRef.current || !isBindingReadyRef.current) return;
+    setReadyRoomId(activeRoomId);
+  }, []);
 
   // Clean up current connection
   const cleanup = useCallback(() => {
     disposedRef.current = true;
     providerSyncedRef.current = false;
-    initialSyncCompleteRef.current = false;
+    isSyncedRef.current = false;
+    isBindingReadyRef.current = false;
     bindingRequestRef.current += 1;
     if (bindingRef.current) {
       bindingRef.current.destroy();
@@ -114,6 +121,7 @@ export function useRealtimeEditor({
       bindingRef.current.destroy();
       bindingRef.current = null;
     }
+    isBindingReadyRef.current = false;
 
     const model = editor.getModel();
     if (!model) return;
@@ -129,7 +137,7 @@ export function useRealtimeEditor({
       hasInitialContent: initialContentRef.current !== undefined,
     });
 
-    const { MonacoBinding } = await loadMonacoBinding();
+    const { MonacoBinding } = await monacoBindingPromise;
 
     // Guard: if cleanup or a newer bind request ran while the import was in-flight,
     // don't attach a stale binding to the editor.
@@ -149,6 +157,7 @@ export function useRealtimeEditor({
       new Set([editor]),
       provider.awareness
     );
+    isBindingReadyRef.current = true;
     logEditorFlow("realtime-editor", "binding:attached", {
       roomId: roomIdRef.current ?? "none",
       yTextLength: ytext.length,
@@ -160,6 +169,7 @@ export function useRealtimeEditor({
     // (which triggers yjs's "Tried to remove event handler" console.error).
     model.onWillDispose(() => {
       bindingRef.current = null;
+      isBindingReadyRef.current = false;
     });
   }, [markDocumentReady, maybeSeedInitialContent]);
 
@@ -172,8 +182,8 @@ export function useRealtimeEditor({
 
     // Clean up previous connection
     cleanup();
+    bindingRequestRef.current += 1;
     disposedRef.current = false;
-    void loadMonacoBinding();
 
     const wsUrl = resolveRealtimeWsUrl();
     logEditorFlow("realtime-editor", "connect:start", {
@@ -204,7 +214,7 @@ export function useRealtimeEditor({
         hasInitialContent: initialContentRef.current !== undefined,
       });
       if (isSynced) {
-        initialSyncCompleteRef.current = true;
+        isSyncedRef.current = true;
         maybeSeedInitialContent();
         markDocumentReady();
       }
@@ -212,9 +222,9 @@ export function useRealtimeEditor({
     provider.on("sync", syncHandler);
     providerSyncedRef.current = provider.synced;
     if (provider.synced) {
-      initialSyncCompleteRef.current = true;
+      isSyncedRef.current = true;
       maybeSeedInitialContent();
-      queueMicrotask(markDocumentReady);
+      markDocumentReady();
     }
 
     // Set local awareness state (used by y-monaco for remote cursor display)
@@ -226,9 +236,8 @@ export function useRealtimeEditor({
     });
 
     // If we already have an editor, create binding immediately.
-    // Use setTimeout so the Y.Doc and provider refs are fully committed.
     if (editorRef.current) {
-      setTimeout(createBinding, 0);
+      void createBinding();
     }
 
     return () => {
@@ -258,7 +267,7 @@ export function useRealtimeEditor({
       logEditorFlow("realtime-editor", "editor:mounted", {
         roomId: roomIdRef.current ?? "none",
       });
-      createBinding();
+      void createBinding();
     },
     [createBinding]
   );
