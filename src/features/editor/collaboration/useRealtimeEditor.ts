@@ -6,8 +6,10 @@ import { WebsocketProvider } from "y-websocket";
 import type { MonacoBinding } from "y-monaco";
 import type * as Monaco from "monaco-editor";
 import {
+  buildRemoteCursorStyles,
   loadMonacoBinding,
   seedYTextIfEmpty,
+  syncLocalSelectionToAwareness,
 } from "@/features/editor/collaboration/realtimeEditorHelpers";
 import {
   getUserColor,
@@ -48,6 +50,7 @@ export function useRealtimeEditor({
   const ydocRef = useRef<Y.Doc | null>(null);
   const bindingRef = useRef<MonacoBinding | null>(null);
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+  const remoteCursorStylesRef = useRef<HTMLStyleElement | null>(null);
   const disposedRef = useRef(false);
   const providerSyncedRef = useRef(false);
 
@@ -86,6 +89,26 @@ export function useRealtimeEditor({
     setReadyRoomId(activeRoomId);
   }, []);
 
+  const clearRemoteCursorStyles = useCallback(() => {
+    if (remoteCursorStylesRef.current) {
+      remoteCursorStylesRef.current.remove();
+      remoteCursorStylesRef.current = null;
+    }
+  }, []);
+
+  const ensureRemoteCursorStyles = useCallback(() => {
+    if (typeof document === "undefined") return null;
+    if (remoteCursorStylesRef.current?.isConnected) {
+      return remoteCursorStylesRef.current;
+    }
+
+    const styleElement = document.createElement("style");
+    styleElement.setAttribute("data-realtime-cursor-styles", "true");
+    document.head.appendChild(styleElement);
+    remoteCursorStylesRef.current = styleElement;
+    return styleElement;
+  }, []);
+
   // Clean up current connection
   const cleanup = useCallback(() => {
     disposedRef.current = true;
@@ -107,7 +130,8 @@ export function useRealtimeEditor({
       ydocRef.current.destroy();
       ydocRef.current = null;
     }
-  }, []);
+    clearRemoteCursorStyles();
+  }, [clearRemoteCursorStyles]);
 
   const maybeSeedInitialContent = useCallback(() => {
     const ydoc = ydocRef.current;
@@ -177,6 +201,7 @@ export function useRealtimeEditor({
       new Set([editor]),
       provider.awareness
     );
+    syncLocalSelectionToAwareness(editor, ydoc, provider.awareness);
     // FIX 2: Mark binding as ready then attempt to mark the document ready.
     // If sync has already completed, markDocumentReady() will fire immediately.
     isBindingReadyRef.current = true;
@@ -297,6 +322,21 @@ export function useRealtimeEditor({
       userId,
     });
 
+    const remoteCursorStyleHandler = () => {
+      if (disposedRef.current || providerRef.current !== provider) return;
+
+      const styleElement = ensureRemoteCursorStyles();
+      if (!styleElement) return;
+
+      styleElement.textContent = buildRemoteCursorStyles(
+        provider.awareness.getStates() as Map<number, unknown>,
+        ydoc.clientID,
+      );
+    };
+
+    provider.awareness.on("change", remoteCursorStyleHandler);
+    remoteCursorStyleHandler();
+
     // FIX 4: Call createBinding directly (no setTimeout) — refs are already
     // committed synchronously above. setTimeout added an unnecessary task-queue
     // delay that widened the window where the sync event could fire before the
@@ -306,6 +346,8 @@ export function useRealtimeEditor({
     }
 
     return () => {
+      provider.awareness.off("change", remoteCursorStyleHandler);
+      clearRemoteCursorStyles();
       provider.off("sync", syncHandler);
       cleanup();
     };
@@ -316,6 +358,8 @@ export function useRealtimeEditor({
     initialContent,
     cleanup,
     createBinding,
+    clearRemoteCursorStyles,
+    ensureRemoteCursorStyles,
     markDocumentReady,
     maybeSeedInitialContent,
   ]);

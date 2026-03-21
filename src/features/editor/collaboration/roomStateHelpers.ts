@@ -10,7 +10,10 @@ import * as Y from "yjs";
 import type { CollaboratorInfo } from "@/shared/state/collaboration";
 import type { FileNode } from "@/features/editor/lib/types";
 import { mergeRemoteTree, stripLocalFields } from "@/features/editor/lib/utils";
-import { getUserColor } from "@/features/editor/collaboration/shared";
+import {
+  buildDistinctPresenceColorMap,
+  getUserColor,
+} from "@/features/editor/collaboration/shared";
 import type {
   ActiveFilePresence,
   CollaborationUserInfo,
@@ -135,6 +138,7 @@ export function buildCollaborators(
   currentClientId: number,
 ): CollaboratorInfo[] {
   const collaborators: CollaboratorInfo[] = [];
+  const colorMap = buildDistinctPresenceColorMap(states);
 
   states.forEach((value, clientId) => {
     if (clientId === currentClientId) return;
@@ -170,7 +174,7 @@ export function buildCollaborators(
       clientId,
       userId: state.user.userId ?? `client-${clientId}`,
       username: state.user.name ?? "Anonymous",
-      color: state.user.color ?? "#888",
+      color: colorMap.get(clientId) ?? state.user.color ?? "#888",
       activeFile:
         typeof state.activeFile === "string"
           ? state.activeFile
