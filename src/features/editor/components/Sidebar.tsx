@@ -35,7 +35,7 @@ export default function Sidebar({
 
   return (
     <div
-      className="sidebar-bg flex flex-col overflow-hidden shrink-0"
+      className="sidebar-bg flex h-full min-h-0 flex-col overflow-hidden shrink-0"
       style={{ width: sidebarWidth, minWidth: sidebarWidth, borderRight: "1px solid #0d1525" }}
     >
       {/* Header */}
@@ -124,7 +124,7 @@ export default function Sidebar({
       </div>
 
       {/* File Tree */}
-      <div className="flex-1 overflow-y-auto py-1 thin-scrollbar">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain py-1 thin-scrollbar">
         {/* Root-level inline create */}
         {inlineCreate?.parentId === null && (
           <CreationInput

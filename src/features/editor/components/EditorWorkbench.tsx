@@ -118,6 +118,7 @@ export default function EditorWorkbench({
         <ActivityBar />
 
         <div
+          className="flex h-full min-h-0"
           style={{
             width: sidebarVisible ? sidebarWidth : 0,
             minWidth: sidebarVisible ? sidebarWidth : 0,

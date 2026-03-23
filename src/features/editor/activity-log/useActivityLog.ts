@@ -8,6 +8,9 @@ import type { FileNode } from "@/features/editor/lib/types"
 
 const ACTIVITY_LOG_ARRAY_NAME = "activityLog"
 const ACTIVITY_LOG_PAGE_SIZE = 50
+const ACTIVITY_LOG_PERSIST_FLUSH_MS = 12000
+const ACTIVITY_LOG_MAX_PENDING_ENTRIES = 25
+const EDIT_ACTIVITY_DEBOUNCE_MS = 2000
 
 interface UseActivityLogOptions {
   roomId: string | null
@@ -95,6 +98,7 @@ export function useActivityLog({
   const store = useActivityLogStore
   const pendingRef = useRef<ActivityLogEntry[]>([])
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const flushInFlightRef = useRef(false)
   const editAccumulatorRef = useRef<{
     fileId: string
     fileName: string
@@ -207,10 +211,12 @@ export function useActivityLog({
 
   // ── Flush pending entries to server (best-effort persistence) ───────
   const flushToServer = useCallback(async () => {
-    if (persistenceDisabledRef.current) return
+    if (persistenceDisabledRef.current || flushInFlightRef.current) return
 
     const batch = pendingRef.current.splice(0)
     if (batch.length === 0) return
+
+    flushInFlightRef.current = true
 
     try {
       const res = await fetch("/api/activity-log", {
@@ -229,6 +235,19 @@ export function useActivityLog({
     } catch (err) {
       console.error("[activity-log] Failed to flush:", err)
       pendingRef.current.unshift(...batch)
+    } finally {
+      flushInFlightRef.current = false
+
+      if (
+        !persistenceDisabledRef.current &&
+        pendingRef.current.length > 0 &&
+        !flushTimerRef.current
+      ) {
+        flushTimerRef.current = setTimeout(() => {
+          flushTimerRef.current = null
+          void flushToServer()
+        }, ACTIVITY_LOG_PERSIST_FLUSH_MS)
+      }
     }
   }, [disablePersistence, getResponseError])
 
@@ -237,7 +256,7 @@ export function useActivityLog({
     flushTimerRef.current = setTimeout(() => {
       flushTimerRef.current = null
       void flushToServer()
-    }, 2000)
+    }, ACTIVITY_LOG_PERSIST_FLUSH_MS)
   }, [flushToServer])
 
   const flushPendingOnExit = useCallback(() => {
@@ -271,9 +290,20 @@ export function useActivityLog({
     (entry: ActivityLogEntry) => {
       appendEntryToRealtime(entry)
       pendingRef.current.push(entry)
+
+      if (pendingRef.current.length >= ACTIVITY_LOG_MAX_PENDING_ENTRIES) {
+        if (flushTimerRef.current) {
+          clearTimeout(flushTimerRef.current)
+          flushTimerRef.current = null
+        }
+
+        void flushToServer()
+        return
+      }
+
       scheduleFlush()
     },
-    [appendEntryToRealtime, scheduleFlush]
+    [appendEntryToRealtime, flushToServer, scheduleFlush]
   )
 
   // ── Reset state when switching rooms ────────────────────────────────
@@ -374,7 +404,7 @@ export function useActivityLog({
               )
             )
             editAccumulatorRef.current = null
-          }, 2000)
+          }, EDIT_ACTIVITY_DEBOUNCE_MS)
           return
         }
 
@@ -411,7 +441,7 @@ export function useActivityLog({
               )
             )
             editAccumulatorRef.current = null
-          }, 2000),
+          }, EDIT_ACTIVITY_DEBOUNCE_MS),
         }
         return
       }

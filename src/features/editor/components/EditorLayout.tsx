@@ -7,7 +7,8 @@ import { logEditorFlow } from "@/features/editor/lib/debug";
 import {
   toggleFolder,
 } from "@/features/editor/lib/utils";
-import { INITIAL_TREE } from "@/features/editor/lib/initialTree";
+import { getProjectTemplate } from "@/features/editor/lib/projectTemplates";
+import type { ProjectTemplateId } from "@/features/editor/lib/projectTemplateMetadata";
 import "@/features/editor/styles/editor.css";
 
 import { useEditorActions } from "@/features/editor/hooks/useEditorActions";
@@ -36,9 +37,14 @@ import { usePreferencesStore } from "@/shared/state/preferences";
 interface EditorLayoutProps {
   roomId?: string;
   userInfo?: { userId: string; username: string } | null;
+  selectedTemplate?: ProjectTemplateId;
 }
 
-export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
+export default function EditorLayout({
+  roomId,
+  userInfo,
+  selectedTemplate = "starter",
+}: EditorLayoutProps) {
   const activeFileId = useEditorTabsStore((s) => s.activeFileId);
   const openTabIds = useEditorTabsStore((s) => s.openTabIds);
   const unsavedIds = useEditorTabsStore((s) => s.unsavedIds);
@@ -63,6 +69,10 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
   const { setEditor, getValue, actions: editorActions } = useEditorActions();
   const tabHistory = useTabHistory();
   const crdtEnabled = !!roomId && !!userInfo;
+  const initialTree = useMemo(
+    () => getProjectTemplate(selectedTemplate),
+    [selectedTemplate],
+  );
 
   useEffect(() => {
     if (roomId) addRoomToHistory(roomId);
@@ -83,7 +93,7 @@ export default function EditorLayout({ roomId, userInfo }: EditorLayoutProps) {
   } = useRoomState({
     roomId: crdtEnabled ? roomId! : null,
     userInfo: userInfo ?? null,
-    initialTree: INITIAL_TREE,
+    initialTree,
     activeFile: activeFileId
       ? {
           id: activeFileId,

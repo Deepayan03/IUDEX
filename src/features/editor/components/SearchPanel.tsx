@@ -82,7 +82,7 @@ export default function SearchPanel({
 
   return (
     <div
-      className="sidebar-bg flex flex-col overflow-hidden shrink-0"
+      className="sidebar-bg flex h-full min-h-0 flex-col overflow-hidden shrink-0"
       style={{ width: sidebarWidth, minWidth: sidebarWidth, borderRight: "1px solid #0d1525" }}
     >
       <div
@@ -130,7 +130,7 @@ export default function SearchPanel({
         </p>
       </div>
 
-      <div className="flex-1 overflow-y-auto py-1 thin-scrollbar">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain py-1 thin-scrollbar">
         {!query.trim() && (
           <div className="px-4 py-8 text-center" style={{ color: "#3a5080", fontSize: 11 }}>
             Search across your current project from one place.

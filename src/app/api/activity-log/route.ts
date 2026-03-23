@@ -96,10 +96,17 @@ export async function POST(req: NextRequest) {
       undone: e.undone ?? false,
     }))
 
-    const { error } = await supabase.from("activity_logs").insert(rows)
+    let { error } = await supabase
+      .from("activity_logs")
+      .upsert(rows, { onConflict: "id" })
+
+    if (error?.message?.includes("no unique or exclusion constraint")) {
+      const fallbackInsert = await supabase.from("activity_logs").insert(rows)
+      error = fallbackInsert.error
+    }
 
     if (error) {
-      console.error("[activity-log] Insert error:", error)
+      console.error("[activity-log] Persist error:", error)
       return NextResponse.json({ error: "Failed to save logs" }, { status: 500 })
     }
 

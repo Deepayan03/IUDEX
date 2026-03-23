@@ -8,6 +8,11 @@ import { signOut } from "next-auth/react"
 import { Plus, LogIn, Clock, Trash2, ArrowLeft, ArrowRight } from "lucide-react"
 import { C, stagger, fadeUp } from "@/features/landing/constants"
 import {
+  DEFAULT_PROJECT_TEMPLATE,
+  PROJECT_TEMPLATE_OPTIONS,
+  type ProjectTemplateId,
+} from "@/features/editor/lib/projectTemplateMetadata"
+import {
   getRoomHistory,
   getRoomHistoryServerSnapshot,
   addRoomToHistory,
@@ -35,6 +40,8 @@ interface RoomsPageProps {
 
 export default function RoomsPage({ userInfo }: RoomsPageProps) {
   const [roomName, setRoomName] = useState("")
+  const [selectedTemplate, setSelectedTemplate] =
+    useState<ProjectTemplateId>(DEFAULT_PROJECT_TEMPLATE)
   const [joinInput, setJoinInput] = useState("")
   const [joinError, setJoinError] = useState("")
   const router = useRouter()
@@ -47,8 +54,9 @@ export default function RoomsPage({ userInfo }: RoomsPageProps) {
   const handleCreate = useCallback(() => {
     const id = generateRoomId()
     addRoomToHistory(id, roomName.trim() || "")
-    router.push(`/editor/${id}`)
-  }, [roomName, router])
+    const params = new URLSearchParams({ template: selectedTemplate })
+    router.push(`/editor/${id}?${params.toString()}`)
+  }, [roomName, router, selectedTemplate])
 
   const handleJoin = useCallback(() => {
     setJoinError("")
@@ -163,7 +171,7 @@ export default function RoomsPage({ userInfo }: RoomsPageProps) {
             </h2>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col gap-4">
             <input
               type="text"
               placeholder="Room name (optional)"
@@ -179,9 +187,56 @@ export default function RoomsPage({ userInfo }: RoomsPageProps) {
               onFocus={e => { e.currentTarget.style.borderColor = C.primary }}
               onBlur={e => { e.currentTarget.style.borderColor = C.borderMid }}
             />
+            <div>
+              <p
+                className="ui-font text-[12px] font-medium mb-2"
+                style={{ color: C.textMuted }}
+              >
+                Choose a template
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {PROJECT_TEMPLATE_OPTIONS.map((template) => {
+                  const selected = template.id === selectedTemplate
+
+                  return (
+                    <button
+                      key={template.id}
+                      type="button"
+                      onClick={() => setSelectedTemplate(template.id)}
+                      className="text-left rounded-xl px-4 py-3 transition-all cursor-pointer"
+                      style={{
+                        background: selected
+                          ? "rgba(61,90,254,0.12)"
+                          : C.bgSurface,
+                        border: selected
+                          ? "1px solid rgba(61,90,254,0.45)"
+                          : `1px solid ${C.borderMid}`,
+                        boxShadow: selected
+                          ? "0 0 24px rgba(61,90,254,0.16)"
+                          : "none",
+                      }}
+                    >
+                      <div
+                        className="ui-font text-[13px] font-semibold mb-1"
+                        style={{ color: selected ? "#ffffff" : C.textPrimary }}
+                      >
+                        {template.label}
+                      </div>
+                      <div
+                        className="ui-font text-[11px] leading-5"
+                        style={{ color: selected ? "#9fb8ff" : C.textMuted }}
+                      >
+                        {template.description}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
             <motion.button
               onClick={handleCreate}
-              className="ui-font text-[14px] font-semibold px-6 py-3 rounded-xl text-white flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
+              className="ui-font text-[14px] font-semibold px-6 py-3 rounded-xl text-white flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap sm:self-start"
               style={{
                 background: C.gradient,
                 boxShadow: "0 0 30px rgba(61,90,254,0.3)",

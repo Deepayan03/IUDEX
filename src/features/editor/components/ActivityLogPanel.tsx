@@ -113,7 +113,7 @@ export default function ActivityLogPanel({
 
   return (
     <div
-      className="sidebar-bg flex flex-col overflow-hidden shrink-0"
+      className="sidebar-bg flex h-full min-h-0 flex-col overflow-hidden shrink-0"
       style={{ width: sidebarWidth, minWidth: sidebarWidth, borderRight: "1px solid #0d1525" }}
     >
       {/* Header */}
@@ -151,7 +151,7 @@ export default function ActivityLogPanel({
       </div>
 
       {/* Log entries */}
-      <div className="flex-1 overflow-y-auto py-1 thin-scrollbar">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain py-1 thin-scrollbar">
         {isLoading && entries.length === 0 && (
           <div className="text-center py-8" style={{ color: "#3a5080", fontSize: 11 }}>
             <div className="flex items-center justify-center gap-2">
