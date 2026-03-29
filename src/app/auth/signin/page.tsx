@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { getProviders, signIn, useSession } from "next-auth/react"
@@ -70,59 +70,15 @@ function getProviderIcon(providerId: string) {
   return null
 }
 
-export default function SignInPage() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const { status } = useSession()
-  const [providers, setProviders] = useState<ClientSafeProvider[]>([])
-  const [isLoadingProviders, setIsLoadingProviders] = useState(true)
-  const [activeProviderId, setActiveProviderId] = useState<string | null>(null)
-
-  const callbackUrl = searchParams.get("callbackUrl") || "/rooms"
-  const errorMessage = getErrorMessage(searchParams.get("error"))
-
-  useEffect(() => {
-    if (status === "authenticated") {
-      router.replace(callbackUrl)
-    }
-  }, [callbackUrl, router, status])
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function loadProviders() {
-      try {
-        const nextProviders = await getProviders()
-        if (cancelled) return
-
-        const ordered = PROVIDER_ORDER.flatMap((providerId) => {
-          const provider = nextProviders?.[providerId]
-          return provider ? [provider] : []
-        })
-
-        setProviders(ordered)
-      } finally {
-        if (!cancelled) {
-          setIsLoadingProviders(false)
-        }
-      }
-    }
-
-    void loadProviders()
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const subtitle = useMemo(() => {
-    if (providers.length > 1) {
-      return "Choose how you want to enter IUDEX."
-    }
-
-    return "Use your account to continue into the editor."
-  }, [providers.length])
-
+function SignInLayout({
+  subtitle,
+  errorMessage,
+  children,
+}: {
+  subtitle: string
+  errorMessage: string | null
+  children: ReactNode
+}) {
   return (
     <main
       className="min-h-screen flex items-center justify-center px-6 py-10"
@@ -208,6 +164,88 @@ export default function SignInPage() {
           </div>
         )}
 
+        {children}
+      </section>
+    </main>
+  )
+}
+
+function SignInPageFallback() {
+  return (
+    <SignInLayout
+      subtitle="Use your account to continue into the editor."
+      errorMessage={null}
+    >
+      <div
+        className="flex items-center justify-center gap-3 rounded-2xl px-4 py-5"
+        style={{
+          background: "rgba(13,17,23,0.92)",
+          border: `1px solid ${C.borderMid}`,
+          color: C.textMuted,
+        }}
+      >
+        <Loader2 size={18} className="animate-spin" />
+        <span className="ui-font text-[14px]">Loading sign-in options...</span>
+      </div>
+    </SignInLayout>
+  )
+}
+
+function SignInPageContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const { status } = useSession()
+  const [providers, setProviders] = useState<ClientSafeProvider[]>([])
+  const [isLoadingProviders, setIsLoadingProviders] = useState(true)
+  const [activeProviderId, setActiveProviderId] = useState<string | null>(null)
+
+  const callbackUrl = searchParams.get("callbackUrl") || "/rooms"
+  const errorMessage = getErrorMessage(searchParams.get("error"))
+
+  useEffect(() => {
+    if (status === "authenticated") {
+      router.replace(callbackUrl)
+    }
+  }, [callbackUrl, router, status])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadProviders() {
+      try {
+        const nextProviders = await getProviders()
+        if (cancelled) return
+
+        const ordered = PROVIDER_ORDER.flatMap((providerId) => {
+          const provider = nextProviders?.[providerId]
+          return provider ? [provider] : []
+        })
+
+        setProviders(ordered)
+      } finally {
+        if (!cancelled) {
+          setIsLoadingProviders(false)
+        }
+      }
+    }
+
+    void loadProviders()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const subtitle = useMemo(() => {
+    if (providers.length > 1) {
+      return "Choose how you want to enter IUDEX."
+    }
+
+    return "Use your account to continue into the editor."
+  }, [providers.length])
+
+  return (
+    <SignInLayout subtitle={subtitle} errorMessage={errorMessage}>
         <div className="space-y-3">
           {isLoadingProviders ? (
             <div
@@ -308,7 +346,14 @@ export default function SignInPage() {
             )
           })}
         </div>
-      </section>
-    </main>
+    </SignInLayout>
+  )
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense fallback={<SignInPageFallback />}>
+      <SignInPageContent />
+    </Suspense>
   )
 }
