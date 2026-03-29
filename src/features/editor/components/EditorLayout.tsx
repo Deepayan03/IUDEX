@@ -247,6 +247,8 @@ export default function EditorLayout({
           return;
         }
 
+        useEditorTabsStore.getState().markDirty(file.id);
+
         for (const change of e.changes) {
           if (change.text.length === 0 && change.rangeLength === 0) {
             continue;
