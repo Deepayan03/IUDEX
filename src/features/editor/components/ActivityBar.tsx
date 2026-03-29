@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react"
 import { useLayoutStore, type SidebarView } from "@/shared/state/layout"
+import { useRenderLogger } from "@/features/editor/hooks/useRenderLogger"
 
 const NAV_ITEMS: { key: SidebarView | null; icon: ReactNode }[] = [
   // Files
@@ -25,7 +26,7 @@ const NAV_ITEMS: { key: SidebarView | null; icon: ReactNode }[] = [
   },
   // Git
   {
-    key: null,
+    key: "source-control",
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
         <path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>
@@ -49,6 +50,11 @@ export default function ActivityBar() {
   const activeSidebarView = useLayoutStore(s => s.activeSidebarView)
   const sidebarVisible = useLayoutStore(s => s.sidebarVisible)
   const setActiveSidebarView = useLayoutStore(s => s.setActiveSidebarView)
+
+  useRenderLogger("activity-bar", {
+    activeSidebarView,
+    sidebarVisible,
+  })
 
   return (
     <div

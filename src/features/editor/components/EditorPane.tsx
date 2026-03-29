@@ -1,12 +1,14 @@
 "use client"
 
+import { useMemo } from "react"
 import CodeEditor, { type EditorInstance } from "./CodeEditor"
 import TerminalPanel                        from "./TerminalPanel"
 import type { FileNode, EditorPrefs }       from "@/features/editor/lib/types"
-import { getFileIcon, getLanguage }         from "@/features/editor/lib/utils"
+import { flatFiles, getFileIcon, getLanguage } from "@/features/editor/lib/utils"
 import type { TitleBarAction }              from "./titlebar/types"
 
 interface EditorPaneProps {
+  tree:                FileNode[]
   activeFile:          FileNode | null
   openTabs:            FileNode[]
   unsavedIds:          Set<string>
@@ -26,12 +28,34 @@ interface EditorPaneProps {
 }
 
 export default function EditorPane({
+  tree,
   activeFile, openTabs, unsavedIds, breadcrumb,
   prefs, terminalVisible, terminalHeight,
   activeFileSourceState, crdtMode, crdtPending, onAction,
   onTabClick, onTabClose,
   onEditorMount, onContentChange, onTerminalResizeStart,
 }: EditorPaneProps) {
+  const flatProjectFiles = useMemo(() => flatFiles(tree), [tree])
+
+  const projectFiles = useMemo(
+    () =>
+      flatProjectFiles.map(({ node, path }) => ({
+        path,
+        language: getLanguage(node.name),
+        content: node.content,
+      })),
+    [flatProjectFiles],
+  )
+
+  const activeFilePath = useMemo(() => {
+    if (!activeFile) return undefined
+
+    return (
+      flatProjectFiles.find(({ node }) => node.id === activeFile.id)?.path ??
+      activeFile.id
+    )
+  }, [activeFile, flatProjectFiles])
+
   return (
     <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden" style={{ background: "#060c18" }}>
 
@@ -140,6 +164,8 @@ export default function EditorPane({
                 <CodeEditor
                   language={getLanguage(activeFile.name)}
                   defaultValue={activeFile.content ?? `// ${activeFile.name}`}
+                  filePath={activeFilePath}
+                  projectFiles={projectFiles}
                   prefs={prefs}
                   crdtMode={crdtMode}
                   onMount={onEditorMount}

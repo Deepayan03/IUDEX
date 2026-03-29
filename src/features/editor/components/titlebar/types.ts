@@ -87,4 +87,5 @@ export interface TitleBarProps {
   activeFileName?: string | null
   hasOpenTabs?: boolean
   onAction: (action: TitleBarAction) => void
+  onExitRoom?: () => void
 }

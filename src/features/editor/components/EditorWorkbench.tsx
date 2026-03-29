@@ -1,18 +1,25 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import ActivityBar from "@/features/editor/components/ActivityBar";
 import ActivityLogPanel from "@/features/editor/components/ActivityLogPanel";
 import CollaboratorsPanel from "@/features/editor/components/CollaboratorsPanel";
 import EditorPane from "@/features/editor/components/EditorPane";
+import ScmRoomNotifications from "@/features/editor/components/ScmRoomNotifications";
 import SearchPanel from "@/features/editor/components/SearchPanel";
 import Sidebar from "@/features/editor/components/Sidebar";
+import SourceControlPanel from "@/features/editor/components/SourceControlPanel";
 import StatusBar from "@/features/editor/components/StatusBar";
+import { useRenderLogger } from "@/features/editor/hooks/useRenderLogger";
 import TitleBar, {
   type TitleBarAction,
 } from "@/features/editor/components/titlebar/TitleBar";
 import type { FileNode, InlineCreate, EditorPrefs } from "@/features/editor/lib/types";
 import type { EditorInstance } from "@/features/editor/components/CodeEditor";
 import type { SidebarView } from "@/shared/state/layout";
+import ConfirmActionModal from "@/shared/components/ConfirmActionModal";
+import { useEditorTabsStore } from "@/shared/state/editorTabs";
 
 interface EditorWorkbenchProps {
   openTabCount: number;
@@ -103,115 +110,171 @@ export default function EditorWorkbench({
   cursorPosition,
   onReconnect,
 }: EditorWorkbenchProps) {
+  const router = useRouter();
+  const [isExitModalOpen, setIsExitModalOpen] = useState(false);
+
+  useRenderLogger("editor-workbench", {
+    activeSidebarView,
+    sidebarVisible,
+    sidebarWidth,
+    terminalVisible,
+    roomId: roomId ?? null,
+    activeFileId: activeFile?.id ?? null,
+    openTabCount,
+    unsavedCount: unsavedIds.size,
+    crdtEnabled,
+    isDocumentReady,
+  });
+
   return (
-    <div
-      className="flex flex-col h-screen w-screen overflow-hidden ui-font"
-      style={{ background: "#060c18", color: "#c8d6e5" }}
-    >
-      <TitleBar
-        activeFileName={activeFile?.name ?? null}
-        hasOpenTabs={openTabCount > 0}
-        onAction={onAction}
-      />
+    <>
+      <div
+        className="flex flex-col h-screen w-screen overflow-hidden ui-font"
+        style={{ background: "#060c18", color: "#c8d6e5" }}
+      >
+        <TitleBar
+          activeFileName={activeFile?.name ?? null}
+          hasOpenTabs={openTabCount > 0}
+          onAction={onAction}
+          onExitRoom={roomId ? () => setIsExitModalOpen(true) : undefined}
+        />
 
-      <div className="flex flex-1 overflow-hidden min-h-0">
-        <ActivityBar />
+        <div className="flex flex-1 overflow-hidden min-h-0">
+          <ActivityBar />
 
-        <div
-          className="flex h-full min-h-0"
-          style={{
-            width: sidebarVisible ? sidebarWidth : 0,
-            minWidth: sidebarVisible ? sidebarWidth : 0,
-            overflow: "hidden",
-            flexShrink: 0,
-            transition: "width 0.18s ease, min-width 0.18s ease",
-          }}
-        >
-          {sidebarVisible && activeSidebarView === "files" && (
-            <Sidebar
-              tree={tree}
-              activeFileId={activeFile?.id ?? null}
-              sidebarWidth={sidebarWidth}
-              inlineCreate={inlineCreate}
-              setInlineCreate={onSetInlineCreate}
-              onSelect={onSelectFile}
-              onToggle={onToggleFolder}
-              onDelete={onDeleteNode}
-              onAddChild={onAddChild}
-              onConfirmCreate={onConfirmCreate}
+          <div
+            className="flex h-full min-h-0"
+            style={{
+              width: sidebarVisible ? sidebarWidth : 0,
+              minWidth: sidebarVisible ? sidebarWidth : 0,
+              overflow: "hidden",
+              flexShrink: 0,
+              transition: "width 0.18s ease, min-width 0.18s ease",
+            }}
+          >
+            {sidebarVisible && activeSidebarView === "files" && (
+              <Sidebar
+                tree={tree}
+                activeFileId={activeFile?.id ?? null}
+                sidebarWidth={sidebarWidth}
+                inlineCreate={inlineCreate}
+                setInlineCreate={onSetInlineCreate}
+                onSelect={onSelectFile}
+                onToggle={onToggleFolder}
+                onDelete={onDeleteNode}
+                onAddChild={onAddChild}
+                onConfirmCreate={onConfirmCreate}
+              />
+            )}
+
+            {sidebarVisible && activeSidebarView === "search" && (
+              <SearchPanel
+                tree={tree}
+                sidebarWidth={sidebarWidth}
+                onSelectResult={onOpenSearchResult}
+              />
+            )}
+
+            {sidebarVisible && activeSidebarView === "source-control" && (
+              <SourceControlPanel
+                tree={tree}
+                sidebarWidth={sidebarWidth}
+                roomId={roomId}
+                userInfo={userInfo ?? null}
+                unsavedIds={unsavedIds}
+              />
+            )}
+
+            {sidebarVisible && activeSidebarView === "activity-log" && (
+              <ActivityLogPanel
+                sidebarWidth={sidebarWidth}
+                onUndoEntry={onUndoEntry}
+                onLoadMore={onLoadMoreActivities}
+              />
+            )}
+          </div>
+
+          {sidebarVisible && (
+            <div
+              className={`relative shrink-0 resize-handle ${isSidebarResizing ? "dragging" : ""}`}
+              style={{
+                width: 3,
+                background: isSidebarResizing
+                  ? "rgba(61,90,254,0.3)"
+                  : "transparent",
+                cursor: "col-resize",
+              }}
+              onMouseDown={onSidebarResizeStart}
             />
           )}
 
-          {sidebarVisible && activeSidebarView === "search" && (
-            <SearchPanel
-              tree={tree}
-              sidebarWidth={sidebarWidth}
-              onSelectResult={onOpenSearchResult}
-            />
-          )}
-
-          {sidebarVisible && activeSidebarView === "activity-log" && (
-            <ActivityLogPanel
-              sidebarWidth={sidebarWidth}
-              onUndoEntry={onUndoEntry}
-              onLoadMore={onLoadMoreActivities}
-            />
-          )}
+          <EditorPane
+            key={editorPaneKey}
+            tree={tree}
+            activeFile={activeFile}
+            openTabs={openTabs}
+            unsavedIds={unsavedIds}
+            breadcrumb={breadcrumb}
+            prefs={prefs}
+            terminalVisible={terminalVisible}
+            terminalHeight={terminalHeight}
+            activeFileSourceState={activeFileSourceState}
+            crdtMode={crdtEnabled}
+            crdtPending={crdtEnabled && !!activeFile && !isDocumentReady}
+            onAction={onAction}
+            onTabClick={onSelectFile}
+            onTabClose={onTabClose}
+            onEditorMount={onEditorMount}
+            onContentChange={onContentChange}
+            onTerminalResizeStart={onTerminalResizeStart}
+          />
         </div>
 
-        {sidebarVisible && (
-          <div
-            className={`relative shrink-0 resize-handle ${isSidebarResizing ? "dragging" : ""}`}
-            style={{
-              width: 3,
-              background: isSidebarResizing
-                ? "rgba(61,90,254,0.3)"
-                : "transparent",
-              cursor: "col-resize",
-            }}
-            onMouseDown={onSidebarResizeStart}
+        <StatusBar
+          activeFile={activeFile}
+          zoom={zoom}
+          isRoomCreator={crdtEnabled ? isCreator : undefined}
+          roomId={roomId}
+          onAction={(action) => onAction(action as TitleBarAction)}
+        />
+
+        {crdtEnabled && (
+          <CollaboratorsPanel
+            roomCreatorId={roomCreatorId}
+            isRoomCreator={isCreator}
+            userInfo={userInfo ?? null}
+            activeFileName={activeFile?.name}
+            cursorPosition={cursorPosition}
+            onReconnect={onReconnect}
           />
         )}
 
-        <EditorPane
-          key={editorPaneKey}
-          activeFile={activeFile}
-          openTabs={openTabs}
-          unsavedIds={unsavedIds}
-          breadcrumb={breadcrumb}
-          prefs={prefs}
-          terminalVisible={terminalVisible}
-          terminalHeight={terminalHeight}
-          activeFileSourceState={activeFileSourceState}
-          crdtMode={crdtEnabled}
-          crdtPending={crdtEnabled && !!activeFile && !isDocumentReady}
-          onAction={onAction}
-          onTabClick={onSelectFile}
-          onTabClose={onTabClose}
-          onEditorMount={onEditorMount}
-          onContentChange={onContentChange}
-          onTerminalResizeStart={onTerminalResizeStart}
-        />
+        {crdtEnabled && (
+          <ScmRoomNotifications
+            roomId={roomId}
+            userInfo={userInfo ?? null}
+          />
+        )}
       </div>
 
-      <StatusBar
-        activeFile={activeFile}
-        zoom={zoom}
-        isRoomCreator={crdtEnabled ? isCreator : undefined}
-        roomId={roomId}
-        onAction={(action) => onAction(action as TitleBarAction)}
-      />
-
-      {crdtEnabled && (
-        <CollaboratorsPanel
-          roomCreatorId={roomCreatorId}
-          isRoomCreator={isCreator}
-          userInfo={userInfo ?? null}
-          activeFileName={activeFile?.name}
-          cursorPosition={cursorPosition}
-          onReconnect={onReconnect}
+      {isExitModalOpen && (
+        <ConfirmActionModal
+          title="Exit this room?"
+          description="You will leave the current editor room and return to your rooms dashboard."
+          confirmLabel="Exit room"
+          note={
+            unsavedIds.size > 0
+              ? `You currently have ${unsavedIds.size} unpublished file change${unsavedIds.size === 1 ? "" : "s"} in Source Control.`
+              : "You can rejoin this room later from your room history."
+          }
+          onCancel={() => setIsExitModalOpen(false)}
+          onConfirm={() => {
+            setIsExitModalOpen(false)
+            useEditorTabsStore.getState().closeAllTabs()
+            router.push("/rooms")
+          }}
         />
       )}
-    </div>
+    </>
   );
 }

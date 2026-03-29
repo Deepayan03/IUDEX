@@ -29,6 +29,8 @@ const messageSync = 0;
 const messageAwareness = 1;
 const messageAuth = 2;
 const messageQueryAwareness = 3;
+const HEARTBEAT_INTERVAL_MS = 30000;
+const ROOM_CLOSE_GRACE_MS = 30000;
 
 // ── Document Room ─────────────────────────────────────────────────────────
 
@@ -42,6 +44,11 @@ interface DocumentRoom {
   awareness: awarenessProtocol.Awareness;
   clients: Set<WSClient>;
   clientAwarenessIds: Map<WSClient, Set<number>>;
+  isDirty: boolean;
+  persistVersion: number;
+  persistInFlight: Promise<void> | null;
+  closeTimer: ReturnType<typeof setTimeout> | null;
+  lastPersistedAt: string | null;
   updateHandler: (update: Uint8Array, origin: unknown) => void;
   awarenessUpdateHandler: (
     changes: { added: number[]; updated: number[]; removed: number[] },
@@ -50,11 +57,84 @@ interface DocumentRoom {
 }
 
 const docs = new Map<string, DocumentRoom>();
+let isShuttingDown = false;
 
 // ── Persistence & PubSub ──────────────────────────────────────────────────
 
 const persistence = createPersistence();
 let pubsub: PubSubService;
+
+function clearRoomCloseTimer(room: DocumentRoom): void {
+  if (room.closeTimer) {
+    clearTimeout(room.closeTimer);
+    room.closeTimer = null;
+  }
+}
+
+function markRoomDirty(_docName: string, room: DocumentRoom): void {
+  room.isDirty = true;
+  room.persistVersion += 1;
+}
+
+async function persistRoom(
+  docName: string,
+  room: DocumentRoom,
+  options: { reason: string; force?: boolean; flushTail?: boolean }
+): Promise<boolean> {
+  const force = options.force ?? false;
+  const flushTail = options.flushTail ?? false;
+
+  if (room.persistInFlight) {
+    await room.persistInFlight;
+  }
+
+  if (!force && !room.isDirty) {
+    return true;
+  }
+
+  const snapshotVersion = room.persistVersion;
+  let didPersist = false;
+
+  const writeOperation = (async () => {
+    didPersist = await persistence.writeState(docName, room.ydoc);
+
+    if (!didPersist) {
+      return;
+    }
+
+    room.lastPersistedAt = new Date().toISOString();
+    if (room.persistVersion === snapshotVersion) {
+      room.isDirty = false;
+    }
+  })();
+
+  room.persistInFlight = writeOperation;
+
+  try {
+    await writeOperation;
+  } finally {
+    if (room.persistInFlight === writeOperation) {
+      room.persistInFlight = null;
+    }
+  }
+
+  if (!didPersist) {
+    return false;
+  }
+
+  if (!room.isDirty) {
+    return true;
+  }
+
+  if (flushTail) {
+    return persistRoom(docName, room, {
+      reason: `${options.reason}:follow-up`,
+      flushTail: true,
+    });
+  }
+
+  return true;
+}
 
 // ── Room management ───────────────────────────────────────────────────────
 
@@ -73,6 +153,11 @@ async function getOrCreateRoom(docName: string): Promise<DocumentRoom> {
     awareness,
     clients: new Set(),
     clientAwarenessIds: new Map(),
+    isDirty: false,
+    persistVersion: 0,
+    persistInFlight: null,
+    closeTimer: null,
+    lastPersistedAt: null,
     updateHandler: (update: Uint8Array, origin: unknown) => {
       const encoder = encoding.createEncoder();
       encoding.writeVarUint(encoder, messageSync);
@@ -83,6 +168,7 @@ async function getOrCreateRoom(docName: string): Promise<DocumentRoom> {
           ? (origin as WSClient)
           : undefined;
       broadcastToRoom(room!, message, excludeConn);
+      markRoomDirty(docName, room!);
     },
     awarenessUpdateHandler: (
       {
@@ -128,8 +214,18 @@ async function closeRoom(docName: string): Promise<void> {
   const room = docs.get(docName);
   if (!room) return;
 
-  // Persist before closing
-  await persistence.writeState(docName, room.ydoc);
+  clearRoomCloseTimer(room);
+  const persisted = await persistRoom(docName, room, {
+    reason: "room-close",
+    flushTail: true,
+  });
+
+  if (!persisted && room.isDirty) {
+    console.warn(
+      `[room] Preserving dirty room in memory after failed close persistence: ${docName}`
+    );
+    return;
+  }
 
   // Clean up pub/sub
   if (pubsub) {
@@ -331,6 +427,7 @@ async function handleConnection(
 
   // Get or create room
   const room = await getOrCreateRoom(docName);
+  clearRoomCloseTimer(room);
   room.clients.add(conn);
   room.clientAwarenessIds.set(conn, new Set());
 
@@ -370,14 +467,15 @@ async function handleConnection(
     );
 
     // Close room if empty
-    if (room.clients.size === 0) {
+    if (!isShuttingDown && room.clients.size === 0) {
       // Delay cleanup to allow reconnections
-      setTimeout(async () => {
+      room.closeTimer = setTimeout(async () => {
+        room.closeTimer = null;
         const currentRoom = docs.get(docName);
         if (currentRoom && currentRoom.clients.size === 0) {
           await closeRoom(docName);
         }
-      }, 30000); // 30s grace period
+      }, ROOM_CLOSE_GRACE_MS);
     }
   });
 
@@ -396,6 +494,13 @@ async function main(): Promise<void> {
 
   // Create HTTP + WS server
   const httpServer = http.createServer((_req, res) => {
+    const roomSummaries = Array.from(docs.entries()).map(([roomId, room]) => ({
+      roomId,
+      clients: room.clients.size,
+      dirty: room.isDirty,
+      lastPersistedAt: room.lastPersistedAt,
+    }));
+
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(
       JSON.stringify({
@@ -405,6 +510,9 @@ async function main(): Promise<void> {
           (sum, r) => sum + r.clients.size,
           0
         ),
+        dirtyRooms: roomSummaries.filter((room) => room.dirty).length,
+        roomCloseGraceMs: ROOM_CLOSE_GRACE_MS,
+        roomSummaries,
       })
     );
   });
@@ -429,41 +537,33 @@ async function main(): Promise<void> {
       client.isAlive = false;
       client.ping();
     });
-  }, 30000);
-
-  // Periodic persistence: save all active rooms every 30s
-  const persistInterval = setInterval(async () => {
-    for (const [docName, room] of docs) {
-      if (room.clients.size > 0) {
-        try {
-          await persistence.writeState(docName, room.ydoc);
-        } catch (err) {
-          console.error(
-            `[persistence] Periodic save failed for ${docName}:`,
-            err
-          );
-        }
-      }
-    }
-  }, 30000);
+  }, HEARTBEAT_INTERVAL_MS);
 
   // Graceful shutdown
   const shutdown = async () => {
+    if (isShuttingDown) {
+      return;
+    }
+
+    isShuttingDown = true;
     console.log("\n[server] Shutting down...");
     clearInterval(heartbeatInterval);
-    clearInterval(persistInterval);
+
+    // Stop accepting more in-flight work from existing sockets.
+    wss.clients.forEach((ws) => ws.close());
 
     // Persist all rooms
     for (const [docName, room] of docs) {
       try {
-        await persistence.writeState(docName, room.ydoc);
+        clearRoomCloseTimer(room);
+        await persistRoom(docName, room, {
+          reason: "shutdown",
+          flushTail: true,
+        });
       } catch (err) {
         console.error(`[persistence] Shutdown save failed for ${docName}:`, err);
       }
     }
-
-    // Close all connections
-    wss.clients.forEach((ws) => ws.close());
 
     // Clean up pub/sub
     if (pubsub) {
@@ -489,6 +589,9 @@ async function main(): Promise<void> {
     );
     console.log(
       `[server] Persistence: ${process.env.SUPABASE_URL ? "enabled (Supabase)" : "disabled"}`
+    );
+    console.log(
+      "[server] Persistence policy: room-empty flush + shutdown flush"
     );
   });
 }

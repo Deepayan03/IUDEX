@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { logEditorFlow } from "@/features/editor/lib/debug"
+import { getGitHubAuthContext, githubFetch } from "@/shared/auth/github"
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
@@ -15,6 +16,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const authContext = await getGitHubAuthContext(req)
     logEditorFlow("github-tree-api", "request:start", {
       owner,
       repo,
@@ -22,10 +24,15 @@ export async function GET(req: NextRequest) {
     })
     // If no branch provided, fetch the default branch
     if (!branch) {
-      const repoRes = await fetch(
-        `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
-        { headers: { Accept: "application/vnd.github.v3+json" } }
-      )
+      const repoRes = authContext
+        ? await githubFetch(
+            `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
+            authContext.token,
+          )
+        : await fetch(
+            `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
+            { headers: { Accept: "application/vnd.github.v3+json" } }
+          )
       if (repoRes.status === 404) {
         return NextResponse.json(
           { error: "Repository not found. Make sure it exists and is public." },
@@ -54,10 +61,15 @@ export async function GET(req: NextRequest) {
     }
 
     // Fetch the full recursive tree
-    const treeRes = await fetch(
-      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(branch!)}?recursive=1`,
-      { headers: { Accept: "application/vnd.github.v3+json" } }
-    )
+    const treeRes = authContext
+      ? await githubFetch(
+          `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(branch!)}?recursive=1`,
+          authContext.token,
+        )
+      : await fetch(
+          `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(branch!)}?recursive=1`,
+          { headers: { Accept: "application/vnd.github.v3+json" } }
+        )
 
     if (treeRes.status === 404) {
       return NextResponse.json(

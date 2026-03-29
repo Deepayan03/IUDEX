@@ -50,6 +50,8 @@ export function useRealtimeEditor({
   const ydocRef = useRef<Y.Doc | null>(null);
   const bindingRef = useRef<MonacoBinding | null>(null);
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+  const modelChangeListenerRef = useRef<Monaco.IDisposable | null>(null);
+  const cursorSelectionListenerRef = useRef<Monaco.IDisposable | null>(null);
   const remoteCursorStylesRef = useRef<HTMLStyleElement | null>(null);
   const disposedRef = useRef(false);
   const providerSyncedRef = useRef(false);
@@ -117,6 +119,14 @@ export function useRealtimeEditor({
     isSyncedRef.current = false;
     isBindingReadyRef.current = false;
     bindingRequestRef.current += 1;
+    if (modelChangeListenerRef.current) {
+      modelChangeListenerRef.current.dispose();
+      modelChangeListenerRef.current = null;
+    }
+    if (cursorSelectionListenerRef.current) {
+      cursorSelectionListenerRef.current.dispose();
+      cursorSelectionListenerRef.current = null;
+    }
     if (bindingRef.current) {
       bindingRef.current.destroy();
       bindingRef.current = null;
@@ -147,79 +157,84 @@ export function useRealtimeEditor({
 
   // Create binding when we have an editor and a provider
   const createBinding = useCallback(async () => {
-    const editor = editorRef.current;
-    const provider = providerRef.current;
-    const ydoc = ydocRef.current;
+    try {
+      const editor = editorRef.current;
+      const provider = providerRef.current;
+      const ydoc = ydocRef.current;
 
-    if (!editor || !provider || !ydoc) return;
+      if (!editor || !provider || !ydoc) return;
 
-    // Destroy previous binding before creating a new one
-    if (bindingRef.current) {
-      bindingRef.current.destroy();
-      bindingRef.current = null;
-    }
-    // FIX 2: Reset binding flag whenever we start a fresh binding attempt.
-    isBindingReadyRef.current = false;
-
-    const model = editor.getModel();
-    if (!model) return;
-
-    const ytext = ydoc.getText("content");
-
-    // FIX 3: Bump the request counter and capture it locally. Every await
-    // boundary below re-validates this id to ensure no stale binding attaches
-    // after a cleanup() or a newer createBinding() call.
-    const requestId = ++bindingRequestRef.current;
-    maybeSeedInitialContent();
-
-    logEditorFlow("realtime-editor", "binding:create", {
-      roomId: roomIdRef.current ?? "none",
-      requestId,
-      yTextLength: ytext.length,
-      hasInitialContent: initialContentRef.current !== undefined,
-    });
-
-    // FIX 1: monacoBindingPromise is pre-warmed at module load time so this
-    // await resolves from cache and does not introduce meaningful latency.
-    const { MonacoBinding } = await monacoBindingPromise;
-
-    // Guard: if cleanup or a newer bind request ran while the import was
-    // in-flight, discard this stale continuation entirely.
-    if (
-      disposedRef.current ||
-      bindingRequestRef.current !== requestId ||
-      providerRef.current !== provider ||
-      ydocRef.current !== ydoc ||
-      editorRef.current !== editor
-    ) {
-      return;
-    }
-
-    bindingRef.current = new MonacoBinding(
-      ytext,
-      model,
-      new Set([editor]),
-      provider.awareness
-    );
-    syncLocalSelectionToAwareness(editor, ydoc, provider.awareness);
-    // FIX 2: Mark binding as ready then attempt to mark the document ready.
-    // If sync has already completed, markDocumentReady() will fire immediately.
-    isBindingReadyRef.current = true;
-    logEditorFlow("realtime-editor", "binding:attached", {
-      roomId: roomIdRef.current ?? "none",
-      yTextLength: ytext.length,
-    });
-    markDocumentReady();
-
-    // y-monaco auto-destroys itself via model.onWillDispose when the Monaco
-    // editor unmounts. Null out our ref so cleanup() doesn't call destroy() a
-    // second time (which triggers yjs's "Tried to remove event handler" error).
-    model.onWillDispose(() => {
-      bindingRef.current = null;
-      // FIX 5: Reset binding flag on model disposal so markDocumentReady works
-      // correctly if the same file is re-opened after the model is discarded.
+      // Destroy previous binding before creating a new one
+      if (bindingRef.current) {
+        bindingRef.current.destroy();
+        bindingRef.current = null;
+      }
+      // FIX 2: Reset binding flag whenever we start a fresh binding attempt.
       isBindingReadyRef.current = false;
-    });
+
+      const model = editor.getModel();
+      if (!model) return;
+
+      const ytext = ydoc.getText("content");
+
+      // FIX 3: Bump the request counter and capture it locally. Every await
+      // boundary below re-validates this id to ensure no stale binding attaches
+      // after a cleanup() or a newer createBinding() call.
+      const requestId = ++bindingRequestRef.current;
+      maybeSeedInitialContent();
+
+      logEditorFlow("realtime-editor", "binding:create", {
+        roomId: roomIdRef.current ?? "none",
+        requestId,
+        yTextLength: ytext.length,
+        hasInitialContent: initialContentRef.current !== undefined,
+      });
+
+      // FIX 1: monacoBindingPromise is pre-warmed at module load time so this
+      // await resolves from cache and does not introduce meaningful latency.
+      const { MonacoBinding } = await monacoBindingPromise;
+
+      // Guard: if cleanup or a newer bind request ran while the import was
+      // in-flight, discard this stale continuation entirely.
+      if (
+        disposedRef.current ||
+        bindingRequestRef.current !== requestId ||
+        providerRef.current !== provider ||
+        ydocRef.current !== ydoc ||
+        editorRef.current !== editor
+      ) {
+        return;
+      }
+
+      bindingRef.current = new MonacoBinding(
+        ytext,
+        model,
+        new Set([editor]),
+        provider.awareness
+      );
+      syncLocalSelectionToAwareness(editor, ydoc, provider.awareness);
+      // FIX 2: Mark binding as ready then attempt to mark the document ready.
+      // If sync has already completed, markDocumentReady() will fire immediately.
+      isBindingReadyRef.current = true;
+      logEditorFlow("realtime-editor", "binding:attached", {
+        roomId: roomIdRef.current ?? "none",
+        yTextLength: ytext.length,
+      });
+      markDocumentReady();
+
+      // y-monaco auto-destroys itself via model.onWillDispose when the Monaco
+      // editor unmounts. Null out our ref so cleanup() doesn't call destroy() a
+      // second time (which triggers yjs's "Tried to remove event handler" error).
+      model.onWillDispose(() => {
+        bindingRef.current = null;
+        // FIX 5: Reset binding flag on model disposal so markDocumentReady works
+        // correctly if the same file is re-opened after the model is discarded.
+        isBindingReadyRef.current = false;
+      });
+    } catch (error) {
+      isBindingReadyRef.current = false;
+      console.error("[iudex] Failed to bind Monaco to realtime document.", error);
+    }
   }, [markDocumentReady, maybeSeedInitialContent]);
 
   // Setup connection when roomId changes
@@ -355,7 +370,6 @@ export function useRealtimeEditor({
     roomId,
     userId,
     username,
-    initialContent,
     cleanup,
     createBinding,
     clearRemoteCursorStyles,
@@ -376,6 +390,24 @@ export function useRealtimeEditor({
   const bindEditor = useCallback(
     (editor: Monaco.editor.IStandaloneCodeEditor) => {
       editorRef.current = editor;
+      if (modelChangeListenerRef.current) {
+        modelChangeListenerRef.current.dispose();
+      }
+      modelChangeListenerRef.current = editor.onDidChangeModel(() => {
+        logEditorFlow("realtime-editor", "editor:model-changed", {
+          roomId: roomIdRef.current ?? "none",
+        });
+        void createBinding();
+      });
+      if (cursorSelectionListenerRef.current) {
+        cursorSelectionListenerRef.current.dispose();
+      }
+      cursorSelectionListenerRef.current = editor.onDidChangeCursorSelection(() => {
+        const provider = providerRef.current;
+        const ydoc = ydocRef.current;
+        if (!provider || !ydoc) return;
+        syncLocalSelectionToAwareness(editor, ydoc, provider.awareness);
+      });
       logEditorFlow("realtime-editor", "editor:mounted", {
         roomId: roomIdRef.current ?? "none",
       });

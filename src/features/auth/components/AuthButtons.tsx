@@ -1,6 +1,6 @@
 "use client"
 
-import { signIn, signOut, useSession } from "next-auth/react"
+import { signOut, useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 
 export default function AuthButtons() {
@@ -34,10 +34,10 @@ export default function AuthButtons() {
 
   return (
     <button
-      onClick={() => signIn("google", { callbackUrl: "/rooms" })}
+      onClick={() => router.push("/auth/signin?callbackUrl=/rooms")}
       className="px-4 py-2 bg-blue-600 rounded-md text-white"
     >
-      Login with Google
+      Sign in
     </button>
   )
 }

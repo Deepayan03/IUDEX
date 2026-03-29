@@ -1,6 +1,10 @@
 import { create } from "zustand"
 
-export type SidebarView = "files" | "search" | "activity-log"
+export type SidebarView =
+  | "files"
+  | "search"
+  | "source-control"
+  | "activity-log"
 
 interface LayoutState {
   sidebarVisible: boolean

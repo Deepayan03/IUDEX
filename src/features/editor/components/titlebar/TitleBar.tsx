@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useCallback } from "react"
+import { LogOut } from "lucide-react"
 import type { TitleBarAction, TitleBarProps, OpenMenu } from "./types"
 import { buildMenus, MENU_KEYS, ACTION_TOASTS }         from "./menuData"
 import MenuDropdown                                      from "./MenuDropdown"
@@ -14,6 +15,7 @@ export default function TitleBar({
   activeFileName = null,
   hasOpenTabs = false,
   onAction,
+  onExitRoom,
 }: TitleBarProps) {
   const sidebarVisible = useLayoutStore(s => s.sidebarVisible)
   const terminalVisible = useLayoutStore(s => s.terminalVisible)
@@ -131,6 +133,31 @@ export default function TitleBar({
 
         {/* RIGHT: icon buttons */}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "stretch", flexShrink: 0 }}>
+
+          {onExitRoom && (
+            <button
+              onClick={onExitRoom}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                height: "100%",
+                padding: "0 10px",
+                border: "none",
+                borderLeft: "1px solid #161b27",
+                background: "transparent",
+                color: "#fca5a5",
+                cursor: "pointer",
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+              title="Exit Room"
+              type="button"
+            >
+              <LogOut size={13} />
+              Exit Room
+            </button>
+          )}
 
           <IconBtn
             title="Toggle Panel Layout (⌘K ⌘J)"

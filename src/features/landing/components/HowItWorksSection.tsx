@@ -1,7 +1,7 @@
 "use client"
 
 import { motion } from "framer-motion"
-import { LogIn, Plus, Code2, ChevronRight } from "lucide-react"
+import { FolderOpen, GitBranch, LogIn, Users } from "lucide-react"
 import { C, fadeUp } from "@/features/landing/constants"
 import { Section } from "@/features/landing/components/Section"
 
@@ -10,88 +10,106 @@ const STEPS = [
     num: "01",
     icon: LogIn,
     title: "Sign In",
-    desc: "Sign in with Google in one click. Your identity is used for cursor labels and room ownership.",
+    desc: "Use Google or GitHub from the branded sign-in screen. Your account powers room access, presence, and ownership.",
+    note: "Google or GitHub",
   },
   {
     num: "02",
-    icon: Plus,
-    title: "Create or Join",
-    desc: "Create a new room or join an existing one via link. Each room gets a unique URL you can share.",
+    icon: FolderOpen,
+    title: "Pick a Template",
+    desc: "Create from Empty, Starter, Next Basic, or Node Basic, or reopen a room from history when you want to jump back in.",
+    note: "4 templates",
   },
   {
     num: "03",
-    icon: Code2,
-    title: "Code Together",
-    desc: "Start editing in a full VS Code-like environment. Every keystroke syncs in real-time via CRDTs.",
+    icon: Users,
+    title: "Build Together",
+    desc: "Live cursors, search, activity log, and shared tabs keep the whole room in sync while everyone works from the same workspace.",
+    note: "Presence · log · search",
   },
-]
+  {
+    num: "04",
+    icon: GitBranch,
+    title: "Publish",
+    desc: "Connect GitHub when ready. Import, create a repo, commit, or open a PR without ever leaving the editor.",
+    note: "Commit · PR",
+  },
+] as const
 
 export default function HowItWorksSection() {
   return (
     <Section
       id="how-it-works"
-      className="py-24 md:py-32 px-6"
+      className="px-6 py-24 md:px-12 md:py-32"
       style={{ background: C.bgDeepest }}
     >
-      <div className="max-w-5xl mx-auto">
-        <motion.div variants={fadeUp} className="text-center mb-16">
+      <div className="mx-auto max-w-[1060px]">
+        <motion.div variants={fadeUp} className="mx-auto mb-16 max-w-[880px] text-center">
           <span
-            className="ui-font text-[12px] font-semibold tracking-[0.2em] uppercase block mb-3"
+            className="ui-font mb-3 block text-[11px] font-bold uppercase tracking-[0.2em]"
             style={{ color: C.primary }}
           >
-            How it works
+            Workflow
           </span>
           <h2
-            className="ui-font text-3xl md:text-4xl font-bold mb-4"
+            className="ui-font mb-5 px-2 pt-2 text-[clamp(38px,6vw,72px)] font-extrabold leading-[1.12] tracking-[-0.055em]"
             style={{ color: C.textPrimary }}
           >
-            Up and running in seconds
+            From sign-in to first commit in minutes
           </h2>
-          <p className="ui-font text-base" style={{ color: C.textMuted }}>
-            No installations. No configuration. Just code.
+          <p className="ui-font mx-auto max-w-[760px] text-[15.5px] md:text-[17px]" style={{ color: C.textMuted }}>
+            Room-first. Template-first. GitHub only when you need it.
           </p>
         </motion.div>
 
-        <div className="flex flex-col md:flex-row items-stretch gap-6 md:gap-0">
-          {STEPS.map((s, i) => (
-            <div key={s.num} className="flex flex-col md:flex-row items-center flex-1">
+        <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-4 xl:gap-0">
+          {STEPS.map((step) => (
+            <div key={step.num} className="px-0 xl:px-5">
               <motion.div
                 variants={fadeUp}
-                className="rounded-2xl p-8 text-center flex-1"
-                style={{ border: `1px solid ${C.borderDark}` }}
+                className="flex h-full flex-col items-center text-center"
+                style={{
+                  position: "relative",
+                }}
               >
                 <span
-                  className="ui-font text-4xl font-extrabold block mb-4"
+                  className="ui-font mb-3 block text-[38px] font-extrabold tracking-[-0.08em]"
                   style={{
                     background: C.gradient,
                     WebkitBackgroundClip: "text",
                     WebkitTextFillColor: "transparent",
                   }}
                 >
-                  {s.num}
+                  {step.num}
                 </span>
                 <div
-                  className="w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-4"
-                  style={{ background: "rgba(61,90,254,0.1)", border: "1px solid rgba(61,90,254,0.2)" }}
+                  className="mb-4 flex h-[54px] w-[54px] items-center justify-center rounded-[14px]"
+                  style={{
+                    background: "rgba(61,90,254,0.1)",
+                    border: "1px solid rgba(61,90,254,0.18)",
+                  }}
                 >
-                  <s.icon size={22} color={C.primary} />
+                  <step.icon size={22} color={C.primary} />
                 </div>
-                <h3 className="ui-font text-[16px] font-semibold mb-2" style={{ color: C.textPrimary }}>
-                  {s.title}
-                </h3>
-                <p className="ui-font text-[14px] leading-relaxed" style={{ color: C.textBody }}>
-                  {s.desc}
-                </p>
-              </motion.div>
-
-              {i < STEPS.length - 1 && (
-                <motion.div
-                  variants={fadeUp}
-                  className="hidden md:flex items-center justify-center px-2"
+                <h3
+                  className="ui-font mb-2 text-[15px] font-bold"
+                  style={{ color: C.textPrimary }}
                 >
-                  <ChevronRight size={20} color={C.primary} style={{ opacity: 0.5 }} />
-                </motion.div>
-              )}
+                  {step.title}
+                </h3>
+                <p
+                  className="ui-font mb-3 text-[12.5px] leading-[1.6]"
+                  style={{ color: C.textBody }}
+                >
+                  {step.desc}
+                </p>
+                <span
+                  className="ui-font text-[10px] font-bold uppercase tracking-[0.12em]"
+                  style={{ color: "#7b9ef7" }}
+                >
+                  {step.note}
+                </span>
+              </motion.div>
             </div>
           ))}
         </div>

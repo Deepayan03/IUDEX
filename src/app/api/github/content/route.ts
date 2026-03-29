@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { logEditorFlow } from "@/features/editor/lib/debug"
+import { getGitHubAuthContext, githubFetch } from "@/shared/auth/github"
 
 const MAX_SIZE = 100_000 // 100KB
+
+function encodeGitHubContentPath(value: string): string {
+  return value
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/")
+}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
@@ -18,14 +26,21 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const authContext = await getGitHubAuthContext(req)
     logEditorFlow("github-content-api", "request:start", {
       owner,
       repo,
       branch,
       path,
     })
-    const url = `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(branch)}/${path}`
-    const res = await fetch(url)
+    const res = authContext
+      ? await githubFetch(
+          `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodeGitHubContentPath(path)}?ref=${encodeURIComponent(branch)}`,
+          authContext.token,
+        )
+      : await fetch(
+          `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(branch)}/${path}`
+        )
 
     if (res.status === 404) {
       logEditorFlow("github-content-api", "request:not-found", {
@@ -50,15 +65,27 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    const content = await res.text()
+    const content = authContext
+      ? (() => {
+          return res.json().then((data: { content?: string; encoding?: string }) => {
+            if (data.encoding !== "base64" || typeof data.content !== "string") {
+              throw new Error("GitHub returned an unsupported file payload.")
+            }
 
-    if (content.length > MAX_SIZE) {
+            return Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf8")
+          })
+        })()
+      : res.text()
+
+    const resolvedContent = await content
+
+    if (resolvedContent.length > MAX_SIZE) {
       logEditorFlow("github-content-api", "request:too-large", {
         owner,
         repo,
         branch,
         path,
-        size: content.length,
+        size: resolvedContent.length,
       })
       return NextResponse.json(
         { error: "File too large (>100KB)" },
@@ -71,9 +98,9 @@ export async function GET(req: NextRequest) {
       repo,
       branch,
       path,
-      size: content.length,
+      size: resolvedContent.length,
     })
-    return NextResponse.json({ content })
+    return NextResponse.json({ content: resolvedContent })
   } catch (err) {
     logEditorFlow("github-content-api", "request:error", {
       owner,

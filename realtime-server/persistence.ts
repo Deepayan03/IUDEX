@@ -3,7 +3,7 @@ import * as Y from "yjs";
 
 interface PersistenceCallbacks {
   bindState: (docName: string, ydoc: Y.Doc) => Promise<void>;
-  writeState: (docName: string, ydoc: Y.Doc) => Promise<void>;
+  writeState: (docName: string, ydoc: Y.Doc) => Promise<boolean>;
 }
 
 let supabase: SupabaseClient | null = null;
@@ -59,7 +59,7 @@ async function bindState(docName: string, ydoc: Y.Doc): Promise<void> {
  * Persist the current Y.Doc state to Supabase.
  * Called by y-websocket when all clients disconnect from a room.
  */
-async function writeState(docName: string, ydoc: Y.Doc): Promise<void> {
+async function writeState(docName: string, ydoc: Y.Doc): Promise<boolean> {
   const client = getClient();
 
   const state = Y.encodeStateAsUpdate(ydoc);
@@ -76,8 +76,10 @@ async function writeState(docName: string, ydoc: Y.Doc): Promise<void> {
 
   if (error) {
     console.error(`[persistence] Error saving document ${docName}:`, error);
+    return false;
   } else {
     console.log(`[persistence] Saved document ${docName} (${state.length} bytes)`);
+    return true;
   }
 }
 
@@ -92,7 +94,7 @@ export function createPersistence(): PersistenceCallbacks {
     );
     return {
       bindState: async () => {},
-      writeState: async () => {},
+      writeState: async () => true,
     };
   }
 

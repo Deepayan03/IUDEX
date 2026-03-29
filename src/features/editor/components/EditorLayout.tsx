@@ -242,7 +242,15 @@ export default function EditorLayout({
         const fileId = useEditorTabsStore.getState().activeFileId;
         const file = fileId ? (nodeMapRef.current.get(fileId) ?? null) : null;
         if (!file) return;
+
+        if (e.isFlush || !editor.hasTextFocus()) {
+          return;
+        }
+
         for (const change of e.changes) {
+          if (change.text.length === 0 && change.rangeLength === 0) {
+            continue;
+          }
           logActivity("edit", file.id, file.name, change.range.startLineNumber);
         }
       });

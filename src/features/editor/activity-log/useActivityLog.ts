@@ -8,8 +8,7 @@ import type { FileNode } from "@/features/editor/lib/types"
 
 const ACTIVITY_LOG_ARRAY_NAME = "activityLog"
 const ACTIVITY_LOG_PAGE_SIZE = 50
-const ACTIVITY_LOG_PERSIST_FLUSH_MS = 12000
-const ACTIVITY_LOG_MAX_PENDING_ENTRIES = 25
+const ACTIVITY_LOG_MAX_ENTRIES = 300
 const EDIT_ACTIVITY_DEBOUNCE_MS = 2000
 
 interface UseActivityLogOptions {
@@ -32,7 +31,6 @@ interface UseActivityLogReturn {
   loadMore: () => void
 }
 
-// Helpers for tree manipulation used by undo
 function addNodeToTree(
   nodes: FileNode[],
   parentId: string | null,
@@ -88,6 +86,10 @@ function buildAccumulatedEditEntry(
   }
 }
 
+function trimToRecentEntries(entries: ActivityLogEntry[]): ActivityLogEntry[] {
+  return entries.slice(-ACTIVITY_LOG_MAX_ENTRIES)
+}
+
 export function useActivityLog({
   roomId,
   userInfo,
@@ -96,9 +98,6 @@ export function useActivityLog({
   roomConnectionStatus,
 }: UseActivityLogOptions): UseActivityLogReturn {
   const store = useActivityLogStore
-  const pendingRef = useRef<ActivityLogEntry[]>([])
-  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const flushInFlightRef = useRef(false)
   const editAccumulatorRef = useRef<{
     fileId: string
     fileName: string
@@ -107,47 +106,64 @@ export function useActivityLog({
     timer: ReturnType<typeof setTimeout> | null
   } | null>(null)
   const visibleLimitRef = useRef(ACTIVITY_LOG_PAGE_SIZE)
-  const persistenceDisabledRef = useRef(false)
   const queuedRealtimeEntriesRef = useRef<ActivityLogEntry[]>([])
-
-  const disablePersistence = useCallback((message: string) => {
-    if (persistenceDisabledRef.current) return
-    persistenceDisabledRef.current = true
-    console.warn(
-      "[activity-log]",
-      `${message}. Live updates will continue over collaboration sync, but Supabase activity-log persistence is disabled.`
-    )
-  }, [])
-
-  const getResponseError = useCallback(async (res: Response) => {
-    try {
-      const data = await res.json()
-      if (typeof data?.error === "string" && data.error.trim()) {
-        return data.error
-      }
-    } catch {
-      // Ignore JSON parse failures and fall back to status text.
-    }
-
-    return res.statusText || `Request failed (${res.status})`
-  }, [])
 
   const getActivityArray = useCallback(() => {
     return metaDocRef?.current?.getArray<ActivityLogEntry>(ACTIVITY_LOG_ARRAY_NAME) ?? null
   }, [metaDocRef])
 
+  const syncEntriesIntoStore = useCallback(
+    (entries: ActivityLogEntry[]) => {
+      const allEntries = trimToRecentEntries(entries)
+        .slice()
+        .sort((a, b) => b.timestamp - a.timestamp)
+
+      store.getState().setEntries(allEntries.slice(0, visibleLimitRef.current))
+      store.getState().setHasMore(allEntries.length > visibleLimitRef.current)
+      store.getState().setLoading(false)
+    },
+    [store]
+  )
+
   const syncEntriesFromRealtime = useCallback(() => {
     const activityArray = getActivityArray()
     if (!activityArray) return false
 
-    const allEntries = activityArray
-      .toArray()
-      .sort((a, b) => b.timestamp - a.timestamp)
-
-    store.getState().setEntries(allEntries.slice(0, visibleLimitRef.current))
-    store.getState().setHasMore(allEntries.length > visibleLimitRef.current)
+    syncEntriesIntoStore(activityArray.toArray())
     return true
-  }, [getActivityArray, store])
+  }, [getActivityArray, syncEntriesIntoStore])
+
+  const pushEntriesToRealtime = useCallback(
+    (entries: ActivityLogEntry[]) => {
+      if (entries.length === 0) return
+
+      const activityArray = getActivityArray()
+      if (!activityArray) {
+        queuedRealtimeEntriesRef.current = trimToRecentEntries([
+          ...queuedRealtimeEntriesRef.current,
+          ...entries,
+        ])
+        syncEntriesIntoStore(queuedRealtimeEntriesRef.current)
+        return
+      }
+
+      const ydoc = metaDocRef?.current
+      const applyEntries = () => {
+        activityArray.push(entries)
+        const overflow = activityArray.length - ACTIVITY_LOG_MAX_ENTRIES
+        if (overflow > 0) {
+          activityArray.delete(0, overflow)
+        }
+      }
+
+      if (ydoc) {
+        ydoc.transact(applyEntries)
+      } else {
+        applyEntries()
+      }
+    },
+    [getActivityArray, metaDocRef, syncEntriesIntoStore]
+  )
 
   const flushQueuedRealtimeEntries = useCallback(() => {
     const activityArray = getActivityArray()
@@ -155,24 +171,17 @@ export function useActivityLog({
 
     const queued = queuedRealtimeEntriesRef.current.splice(0)
     if (queued.length > 0) {
-      activityArray.push(queued)
+      pushEntriesToRealtime(queued)
     }
 
     return true
-  }, [getActivityArray])
+  }, [getActivityArray, pushEntriesToRealtime])
 
   const appendEntryToRealtime = useCallback(
     (entry: ActivityLogEntry) => {
-      const activityArray = getActivityArray()
-      if (!activityArray) {
-        queuedRealtimeEntriesRef.current.push(entry)
-        store.getState().addEntry(entry)
-        return
-      }
-
-      activityArray.push([entry])
+      pushEntriesToRealtime([entry])
     },
-    [getActivityArray, store]
+    [pushEntriesToRealtime]
   )
 
   const markEntryUndoneInRealtime = useCallback(
@@ -183,7 +192,7 @@ export function useActivityLog({
           ...queuedRealtimeEntriesRef.current[queuedIndex],
           undone: true,
         }
-        store.getState().markUndone(entryId)
+        syncEntriesIntoStore(queuedRealtimeEntriesRef.current)
         return true
       }
 
@@ -206,111 +215,19 @@ export function useActivityLog({
 
       return true
     },
-    [getActivityArray, metaDocRef, store]
+    [getActivityArray, metaDocRef, syncEntriesIntoStore]
   )
-
-  // ── Flush pending entries to server (best-effort persistence) ───────
-  const flushToServer = useCallback(async () => {
-    if (persistenceDisabledRef.current || flushInFlightRef.current) return
-
-    const batch = pendingRef.current.splice(0)
-    if (batch.length === 0) return
-
-    flushInFlightRef.current = true
-
-    try {
-      const res = await fetch("/api/activity-log", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entries: batch }),
-      })
-      if (!res.ok) {
-        const message = await getResponseError(res)
-        if (res.status === 503) {
-          disablePersistence(message)
-          return
-        }
-        throw new Error(message)
-      }
-    } catch (err) {
-      console.error("[activity-log] Failed to flush:", err)
-      pendingRef.current.unshift(...batch)
-    } finally {
-      flushInFlightRef.current = false
-
-      if (
-        !persistenceDisabledRef.current &&
-        pendingRef.current.length > 0 &&
-        !flushTimerRef.current
-      ) {
-        flushTimerRef.current = setTimeout(() => {
-          flushTimerRef.current = null
-          void flushToServer()
-        }, ACTIVITY_LOG_PERSIST_FLUSH_MS)
-      }
-    }
-  }, [disablePersistence, getResponseError])
-
-  const scheduleFlush = useCallback(() => {
-    if (persistenceDisabledRef.current || flushTimerRef.current) return
-    flushTimerRef.current = setTimeout(() => {
-      flushTimerRef.current = null
-      void flushToServer()
-    }, ACTIVITY_LOG_PERSIST_FLUSH_MS)
-  }, [flushToServer])
-
-  const flushPendingOnExit = useCallback(() => {
-    if (persistenceDisabledRef.current) return
-
-    const batch = pendingRef.current.splice(0)
-    if (batch.length === 0) return
-
-    const body = JSON.stringify({ entries: batch })
-
-    if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
-      navigator.sendBeacon(
-        "/api/activity-log",
-        new Blob([body], { type: "application/json" })
-      )
-      return
-    }
-
-    void fetch("/api/activity-log", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-      keepalive: true,
-    }).catch((err) => {
-      console.error("[activity-log] Final flush error:", err)
-      pendingRef.current.unshift(...batch)
-    })
-  }, [])
 
   const enqueueEntry = useCallback(
     (entry: ActivityLogEntry) => {
       appendEntryToRealtime(entry)
-      pendingRef.current.push(entry)
-
-      if (pendingRef.current.length >= ACTIVITY_LOG_MAX_PENDING_ENTRIES) {
-        if (flushTimerRef.current) {
-          clearTimeout(flushTimerRef.current)
-          flushTimerRef.current = null
-        }
-
-        void flushToServer()
-        return
-      }
-
-      scheduleFlush()
     },
-    [appendEntryToRealtime, flushToServer, scheduleFlush]
+    [appendEntryToRealtime]
   )
 
-  // ── Reset state when switching rooms ────────────────────────────────
   useEffect(() => {
     visibleLimitRef.current = ACTIVITY_LOG_PAGE_SIZE
     queuedRealtimeEntriesRef.current = []
-    persistenceDisabledRef.current = false
 
     if (!roomId) {
       store.getState().clear()
@@ -321,7 +238,6 @@ export function useActivityLog({
     store.getState().setLoading(true)
   }, [roomId, store])
 
-  // ── Hydrate + observe the shared Y.Array for live updates ───────────
   useEffect(() => {
     if (!roomId) return
 
@@ -338,7 +254,6 @@ export function useActivityLog({
 
     const syncFromArray = () => {
       syncEntriesFromRealtime()
-      store.getState().setLoading(false)
     }
 
     syncFromArray()
@@ -350,31 +265,18 @@ export function useActivityLog({
   }, [
     roomId,
     roomConnectionStatus,
-    store,
     getActivityArray,
     flushQueuedRealtimeEntries,
     syncEntriesFromRealtime,
+    store,
   ])
 
-  // ── Cleanup on unmount ──────────────────────────────────────────────
   useEffect(() => {
-    if (typeof window === "undefined") return
-
-    const handlePageHide = () => {
-      flushPendingOnExit()
-    }
-
-    window.addEventListener("pagehide", handlePageHide)
-
     return () => {
-      window.removeEventListener("pagehide", handlePageHide)
-      if (flushTimerRef.current) clearTimeout(flushTimerRef.current)
       if (editAccumulatorRef.current?.timer) clearTimeout(editAccumulatorRef.current.timer)
-      flushPendingOnExit()
     }
-  }, [flushPendingOnExit])
+  }, [])
 
-  // ── Log an activity ─────────────────────────────────────────────────
   const logActivity = useCallback(
     (
       action: ActivityAction,
@@ -385,7 +287,6 @@ export function useActivityLog({
     ) => {
       if (!roomId || !userInfo) return
 
-      // Debounce edit actions: accumulate consecutive edits to the same file
       if (action === "edit") {
         const acc = editAccumulatorRef.current
         if (acc && acc.fileId === targetFile && lineNumber !== undefined) {
@@ -462,7 +363,6 @@ export function useActivityLog({
     [roomId, userInfo, enqueueEntry]
   )
 
-  // ── Load more from the shared Y.Array ───────────────────────────────
   const loadMore = useCallback(() => {
     if (!roomId) return
 
@@ -475,9 +375,8 @@ export function useActivityLog({
     store.getState().setLoading(false)
   }, [roomId, store, getActivityArray, syncEntriesFromRealtime])
 
-  // ── Undo a structural entry ────────────────────────────────────────
   const undoEntry = useCallback(
-    async (entryId: string) => {
+    (entryId: string) => {
       const entry = store.getState().entries.find((e) => e.id === entryId)
       if (!entry || entry.undone || !entry.delta || !syncTree) return
 
@@ -508,28 +407,8 @@ export function useActivityLog({
       if (!markEntryUndoneInRealtime(entryId)) {
         store.getState().markUndone(entryId)
       }
-
-      if (persistenceDisabledRef.current) return
-
-      try {
-        const res = await fetch("/api/activity-log/undo", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ entryId }),
-        })
-        if (!res.ok) {
-          const message = await getResponseError(res)
-          if (res.status === 503) {
-            disablePersistence(message)
-            return
-          }
-          throw new Error(message)
-        }
-      } catch (err) {
-        console.error("[activity-log] Undo persist error:", err)
-      }
     },
-    [syncTree, store, markEntryUndoneInRealtime, disablePersistence, getResponseError]
+    [syncTree, store, markEntryUndoneInRealtime]
   )
 
   return { logActivity, undoEntry, loadMore }
