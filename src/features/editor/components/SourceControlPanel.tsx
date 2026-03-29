@@ -419,6 +419,26 @@ export default function SourceControlPanel({
     unsavedIdsRef.current = unsavedIds
   }, [unsavedIds])
 
+  const localFileSignature = useMemo(
+    () => Array.from(localFiles.keys()).sort().join("|"),
+    [localFiles],
+  )
+  const unsavedIdSignature = useMemo(
+    () => Array.from(unsavedIds).sort().join("|"),
+    [unsavedIds],
+  )
+  const trackedActivitySignature = useMemo(
+    () =>
+      activityEntries
+        .filter((entry) => actionTargetsFile(entry.action))
+        .map(
+          (entry) =>
+            `${entry.id}:${entry.action}:${entry.targetFile}:${entry.timestamp}:${entry.undone ? "1" : "0"}`,
+        )
+        .join("|"),
+    [activityEntries],
+  )
+
   const unsavedFileCount = unsavedIds.size
   const trackedActivityCount = activityEntries.filter((entry) =>
     actionTargetsFile(entry.action),
@@ -604,9 +624,9 @@ export default function SourceControlPanel({
     githubStatus?.connected,
     refreshChanges,
     roomId,
-    unsavedFileCount,
-    trackedActivityCount,
-    projectFileCount,
+    localFileSignature,
+    unsavedIdSignature,
+    trackedActivitySignature,
   ])
 
   const loadRepositories = useCallback(async (options?: {
