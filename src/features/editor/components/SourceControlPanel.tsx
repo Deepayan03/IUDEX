@@ -198,7 +198,7 @@ async function resolveLocalFileContent(
     preferNodeContent?: boolean
   },
 ): Promise<string> {
-  if (options?.preferNodeContent && node.content !== undefined) {
+  if (options?.preferNodeContent && node.content !== undefined && !node.githubPath) {
     return node.content
   }
 
